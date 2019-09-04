@@ -1,14 +1,20 @@
 mod config;
-mod tunnels;
 mod requests;
+mod tunnels;
+use futures::future;
 
 fn main() {
-    let cfg = config::TunCfg::new();
-    let tunmgr = tunnels::TunMgr::new(cfg.number);
-    tunmgr.init(&cfg);
-
-    let reqmgr = requests::ReqMgr::new();
-    reqmgr.init();
-
     println!("Hello, world!");
+    let fut = future::lazy(|| {
+        let cfg = config::TunCfg::new();
+        let tunmgr = tunnels::TunMgr::new(cfg.number);
+        let reqmgr = requests::ReqMgr::new(&tunmgr);
+
+        tunmgr.init(&cfg);
+        reqmgr.init();
+
+        Ok(())
+    });
+
+    tokio::run(fut);
 }

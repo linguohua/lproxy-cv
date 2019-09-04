@@ -22,7 +22,7 @@ impl Server {
         // start tcp server listen at addr
         // Bind the server's socket.
         let port = self.port;
-        let addr = format!("localhost:{}", port);
+        let addr = format!("127.0.0.1:{}", port);
         let addr_inet = addr.parse().unwrap();
         let listener = TcpListener::bind(&addr_inet).expect("unable to bind TCP listener");
 
@@ -56,13 +56,14 @@ impl Server {
         });
 
         let req = super::Request::new(tx);
-        let index = mgr.clone().on_request_created(req);
+        let north = mgr.clone().on_request_created(req);
+        let north1 = north.clone();
         let mgr1 = mgr.clone();
 
         let receive_fut = stream.for_each(move |message| {
             // post to manager
             let mgr22 = mgr.clone();
-            mgr22.on_request_msg(message, index);
+            mgr22.on_request_msg(message, north.clone());
 
             Ok(())
         });
@@ -73,7 +74,7 @@ impl Server {
             .map_err(|_| ())
             .select(send_fut.map(|_| ()).map_err(|_| ()))
             .then(move |_| {
-                mgr1.on_request_closed(index);
+                mgr1.on_request_closed(north1);
 
                 Ok(())
             });

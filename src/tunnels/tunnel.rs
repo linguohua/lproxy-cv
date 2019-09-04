@@ -1,16 +1,23 @@
+use crate::requests::North;
+use crate::requests::Request;
 use super::TunMgr;
 use futures::sync::mpsc::UnboundedSender;
 use futures::{Future, Sink, Stream};
 use std::sync::Arc;
+use std::sync::Mutex;
+
 use tokio;
 use tokio_tungstenite::connect_async;
 use tokio_tungstenite::stream::PeerAddr;
 use tungstenite::protocol::Message;
 use url;
+use crate::requests::Reqq;
 
 pub struct Tunnel {
     pub tx: UnboundedSender<Message>,
     pub index: usize,
+
+    requests: Mutex<Reqq>,
 }
 
 impl Tunnel {
@@ -35,6 +42,7 @@ impl Tunnel {
                 let t = Tunnel {
                     tx: tx,
                     index: index,
+                    requests: Mutex::new(Reqq::new(1)),
                 };
 
                 let mgr2 = mgr1.clone();
@@ -78,4 +86,32 @@ impl Tunnel {
 
         tokio::spawn(client);
     }
+
+    pub fn on_request_created(&self, req:Request) -> Arc<North> {
+        let reqs = &mut self.requests.lock().unwrap();
+        let req_idx = reqs.alloc(req);
+        let tun_idx = self.index;
+        let tx = self.tx.clone();
+
+        Arc::new(North {
+            tx: tx,
+            tun_idx: tun_idx as u16,
+            req_idx: req_idx as u16,
+            req_tag: 0,
+        })
+    }
+
+    pub fn on_tunnel_msg(&self, msg: Message) {
+        if msg.is_pong() {
+            self.on_pong(msg);
+
+            return;
+        }
+
+        // req_idx
+
+        // req_tag
+    }
+
+    fn on_pong(&self, msg:Message) {}
 }

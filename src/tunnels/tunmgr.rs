@@ -1,6 +1,8 @@
 use super::Tunnel;
 use crate::config::TunCfg;
 
+use crate::requests::North;
+use crate::requests::Request;
 use std::sync::Arc;
 use std::sync::Mutex;
 use tungstenite::protocol::Message;
@@ -32,7 +34,7 @@ impl TunMgr {
         }
     }
 
-    pub fn on_tunnel_created(self: Arc<TunMgr>, index: usize, tun: Tunnel) {
+    pub fn on_tunnel_created(&self, index: usize, tun: Tunnel) {
         let mut tunnels = self.tunnels.lock().unwrap();
         let t = &tunnels[index];
 
@@ -43,7 +45,7 @@ impl TunMgr {
         tunnels[index] = Some(tun);
     }
 
-    pub fn on_tunnel_closed(self: Arc<TunMgr>, index: usize) {
+    pub fn on_tunnel_closed(&self, index: usize) {
         let mut tunnels = self.tunnels.lock().unwrap();
         let t = &tunnels[index];
 
@@ -54,5 +56,18 @@ impl TunMgr {
         tunnels[index] = None;
     }
 
-    pub fn on_tunnel_msg(self: Arc<TunMgr>, _msg: Message, _index: usize) {}
+    pub fn on_tunnel_msg(&self, msg: Message, index: usize) {
+        let tunnels = self.tunnels.lock().unwrap();
+        let tun = tunnels[index].as_ref().unwrap();
+
+        tun.on_tunnel_msg(msg);
+    }
+
+    pub fn on_request_created(&self, req: Request) -> Arc<North> {
+        let tunnels = &self.tunnels.lock().unwrap();
+        let tidx = 0;
+        let t = tunnels[tidx].as_ref().unwrap();
+
+        t.on_request_created(req)
+    }
 }

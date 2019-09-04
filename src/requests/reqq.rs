@@ -32,7 +32,7 @@ impl Reqq {
 
         let idx = free.pop().unwrap();
         let mut req = req;
-        req.bind(idx);
+        req.bind(idx as u16);
 
         elements[idx] = Some(req);
 
