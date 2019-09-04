@@ -55,14 +55,13 @@ impl Server {
             Ok(sink)
         });
 
-        let north = mgr.clone().on_request_created(tx);
+        let north = mgr.on_request_created(&tx);
         let north1 = north.clone();
         let mgr1 = mgr.clone();
 
         let receive_fut = stream.for_each(move |message| {
             // post to manager
-            let mgr22 = mgr.clone();
-            mgr22.on_request_msg(message, &north);
+            mgr.on_request_msg(message, &north);
 
             Ok(())
         });

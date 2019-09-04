@@ -79,13 +79,13 @@ impl TunMgr {
         }
     }
 
-    pub fn on_request_created(&self, req_tx: UnboundedSender<Bytes>) -> Arc<North> {
+    pub fn on_request_created(&self, req_tx: &UnboundedSender<Bytes>) -> Arc<North> {
         let tidx = 0;
         let tun = self.get_tunnel(tidx).unwrap();
         tun.on_request_created(req_tx)
     }
 
-    pub fn on_request_closed(&self, north:&Arc<North>) {
+    pub fn on_request_closed(&self, north: &Arc<North>) {
         let tidx = north.tun_idx;
         let tun = self.get_tunnel(tidx as usize).unwrap();
         tun.on_request_closed(north);

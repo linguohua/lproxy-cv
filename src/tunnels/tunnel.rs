@@ -125,8 +125,8 @@ impl Tunnel {
         }
 
         let req = &requests.elements[req_idx];
-        if req.tag == req_tag && req.tx.is_some() {
-            match req.tx {
+        if req.tag == req_tag && req.request_tx.is_some() {
+            match req.request_tx {
                 None => {
                     return None;
                 }
@@ -139,14 +139,14 @@ impl Tunnel {
         None
     }
 
-    pub fn on_request_created(&self, req_tx: UnboundedSender<Bytes>) -> Arc<North> {
+    pub fn on_request_created(&self, req_tx: &UnboundedSender<Bytes>) -> Arc<North> {
         let reqs = &mut self.requests.lock().unwrap();
         let (idx, tag) = reqs.alloc(req_tx);
         let tun_idx = self.index;
         let tx = self.tx.clone();
 
         Arc::new(North {
-            tx: tx,
+            tunnel_tx: tx,
             tun_idx: tun_idx as u16,
             req_idx: idx,
             req_tag: tag,

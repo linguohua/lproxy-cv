@@ -22,7 +22,7 @@ impl Reqq {
         }
     }
 
-    pub fn alloc(&mut self, req_tx: UnboundedSender<Bytes>) -> (u16, u16) {
+    pub fn alloc(&mut self, req_tx: &UnboundedSender<Bytes>) -> (u16, u16) {
         let free = &mut self.free;
         let elements = &mut self.elements;
 
@@ -35,7 +35,7 @@ impl Reqq {
         let idx = free.pop().unwrap();
         let req = &mut elements[idx];
         req.tag = req.tag + 1;
-        req.tx = Some(req_tx);
+        req.request_tx = Some(req_tx.clone());
 
         (idx as u16, req.tag)
     }
@@ -53,7 +53,7 @@ impl Reqq {
         }
 
         req.tag = req.tag + 1;
-        req.tx = None;
+        req.request_tx = None;
 
         let free = &mut self.free;
         free.push(idx as usize);
