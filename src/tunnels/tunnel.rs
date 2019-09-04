@@ -1,7 +1,8 @@
+use super::Cmd;
+use super::THeader;
 use super::TunMgr;
 use crate::requests::North;
 use crate::requests::Reqq;
-use byte::*;
 use bytes::Bytes;
 use futures::sync::mpsc::UnboundedSender;
 use futures::{Future, Sink, Stream};
@@ -95,22 +96,26 @@ impl Tunnel {
         }
 
         let bs = msg.into_data();
-        let offset = &mut 0;
-        let cmd = bs.read_with::<u8>(offset, LE).unwrap();
-        if cmd == 0 {
-            // data
-            let req_idx = bs.read_with::<u16>(offset, LE).unwrap();
-            let req_tag = bs.read_with::<u16>(offset, LE).unwrap();
-
-            let tx = self.get_request_tx(req_idx, req_tag);
-            match tx {
-                None => {
-                    println!("no request found for: {}:{}", req_idx, req_tag);
+        let th = THeader::read_from(&bs[..]);
+        let cmd = Cmd::from(th.cmd);
+        match cmd {
+            Cmd::ReqData => {
+                // data
+                let req_idx = th.req_idx;
+                let req_tag = th.req_tag;
+                let tx = self.get_request_tx(req_idx, req_tag);
+                match tx {
+                    None => {
+                        println!("no request found for: {}:{}", req_idx, req_tag);
+                    }
+                    Some(tx) => {
+                        let b = Bytes::from(&bs[4..]);
+                        tx.unbounded_send(b).unwrap();
+                    }
                 }
-                Some(tx) => {
-                    let b = Bytes::from(&bs[4..]);
-                    tx.unbounded_send(b).unwrap();
-                }
+            }
+            _ => {
+                println!("unsupport cmd:{:?}, discard msg", cmd);
             }
         }
     }
