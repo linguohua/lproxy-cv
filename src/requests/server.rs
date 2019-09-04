@@ -55,15 +55,14 @@ impl Server {
             Ok(sink)
         });
 
-        let req = super::Request::new(tx);
-        let north = mgr.clone().on_request_created(req);
+        let north = mgr.clone().on_request_created(tx);
         let north1 = north.clone();
         let mgr1 = mgr.clone();
 
         let receive_fut = stream.for_each(move |message| {
             // post to manager
             let mgr22 = mgr.clone();
-            mgr22.on_request_msg(message, north.clone());
+            mgr22.on_request_msg(message, &north);
 
             Ok(())
         });
@@ -74,7 +73,7 @@ impl Server {
             .map_err(|_| ())
             .select(send_fut.map(|_| ()).map_err(|_| ()))
             .then(move |_| {
-                mgr1.on_request_closed(north1);
+                mgr1.on_request_closed(&north1);
 
                 Ok(())
             });

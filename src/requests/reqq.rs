@@ -1,7 +1,9 @@
 use super::Request;
+use bytes::Bytes;
+use futures::sync::mpsc::UnboundedSender;
 
 pub struct Reqq {
-    elements: Vec<Option<Request>>,
+    pub elements: Vec<Request>,
     free: Vec<usize>,
 }
 
@@ -10,7 +12,7 @@ impl Reqq {
         let mut elements = Vec::with_capacity(size);
         let mut free = Vec::with_capacity(size);
         for n in 0..size {
-            elements.push(None);
+            elements.push(Request::new());
             free.push(size - 1 - n);
         }
 
@@ -20,36 +22,40 @@ impl Reqq {
         }
     }
 
-    pub fn alloc(&mut self, req: Request) -> usize {
+    pub fn alloc(&mut self, req_tx: UnboundedSender<Bytes>) -> (u16, u16) {
         let free = &mut self.free;
         let elements = &mut self.elements;
 
         if free.len() < 1 {
             println!("alloc failed, no free slot in reqq");
 
-            return std::usize::MAX;
+            return (std::u16::MAX, std::u16::MAX);
         }
 
         let idx = free.pop().unwrap();
-        let mut req = req;
-        req.bind(idx as u16);
+        let req = &mut elements[idx];
+        req.tag = req.tag + 1;
+        req.tx = Some(req_tx);
 
-        elements[idx] = Some(req);
-
-        idx
+        (idx as u16, req.tag)
     }
 
-    pub fn free(&mut self, idx: usize) {
-        let free = &mut self.free;
+    pub fn free(&mut self, idx: u16, tag: u16) {
         let elements = &mut self.elements;
-
-        if free.len() < 1 {
-            println!("alloc failed, no free slot in reqq");
-
+        if idx as usize >= elements.len() {
             return;
         }
 
-        free.push(idx);
-        elements[idx] = None;
+        let req = &mut elements[idx as usize];
+
+        if req.tag != tag {
+            return;
+        }
+
+        req.tag = req.tag + 1;
+        req.tx = None;
+
+        let free = &mut self.free;
+        free.push(idx as usize);
     }
 }

@@ -4,7 +4,6 @@ mod tunnels;
 use futures::future;
 
 fn main() {
-    println!("Hello, world!");
     let fut = future::lazy(|| {
         let cfg = config::TunCfg::new();
         let tunmgr = tunnels::TunMgr::new(cfg.number);
