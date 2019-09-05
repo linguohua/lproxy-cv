@@ -58,4 +58,15 @@ impl Reqq {
         let free = &mut self.free;
         free.push(idx as usize);
     }
+
+    pub fn clear_all(&mut self) {
+        let elements = &mut self.elements;
+        for e in elements.iter_mut() {
+            e.request_tx = None;
+            e.tag += 1;
+        }
+
+        // not alloc-able
+        self.free.clear();
+    }
 }

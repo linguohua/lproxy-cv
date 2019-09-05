@@ -3,8 +3,8 @@ use crate::config::TunCfg;
 use bytes::Bytes;
 use futures::sync::mpsc::UnboundedSender;
 use std::sync::Arc;
-
-use crate::requests::North;
+use super::tunbuilder;
+use crate::requests::TunStub;
 use std::sync::Mutex;
 use tungstenite::protocol::Message;
 
@@ -31,7 +31,7 @@ impl TunMgr {
         for n in 1..cfg.number {
             let index = n;
             let mgr = self.clone();
-            Tunnel::connect(&cfg.url, &mgr, index);
+            tunbuilder::connect(&cfg.url, &mgr, index);
         }
     }
 
@@ -47,26 +47,42 @@ impl TunMgr {
     }
 
     pub fn on_tunnel_closed(&self, index: usize) {
+        let t = self.on_tunnel_closed_interal(index);
+        match t {
+            Some(t) => {
+                t.on_closed();
+            }
+            None => {}
+        }
+    }
+
+    fn on_tunnel_closed_interal(&self, index: usize) -> TunnelItem {
         let mut tunnels = self.tunnels.lock().unwrap();
         let t = &tunnels[index];
 
-        if t.is_none() {
-            panic!("there is no tunnel at {}!", index);
-        }
+        match t {
+            Some(t) => {
+                let t = t.clone();
+                tunnels[index] = None;
 
-        tunnels[index] = None;
+                Some(t)
+            }
+            None => None,
+        }
     }
 
-    pub fn on_tunnel_msg(&self, msg: Message, index: usize) {
+    pub fn on_tunnel_msg(&self, msg: Message, index: usize) -> bool {
         let tun = self.get_tunnel(index);
         match tun {
             Some(tun) => {
-                tun.on_tunnel_msg(msg);
+                return tun.on_tunnel_msg(msg);
             }
             None => {
                 println!("no tunnel found for:{}, discard msg", index);
             }
         }
+
+        return true;
     }
 
     fn get_tunnel(&self, index: usize) -> TunnelItem {
@@ -79,15 +95,15 @@ impl TunMgr {
         }
     }
 
-    pub fn on_request_created(&self, req_tx: &UnboundedSender<Bytes>) -> Arc<North> {
+    pub fn on_request_created(&self, req_tx: &UnboundedSender<Bytes>) -> Arc<TunStub> {
         let tidx = 0;
         let tun = self.get_tunnel(tidx).unwrap();
         tun.on_request_created(req_tx)
     }
 
-    pub fn on_request_closed(&self, north: &Arc<North>) {
-        let tidx = north.tun_idx;
+    pub fn on_request_closed(&self, tunstub: &Arc<TunStub>) {
+        let tidx = tunstub.tun_idx;
         let tun = self.get_tunnel(tidx as usize).unwrap();
-        tun.on_request_closed(north);
+        tun.on_request_closed(tunstub);
     }
 }

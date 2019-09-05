@@ -61,9 +61,11 @@ impl Server {
 
         let receive_fut = stream.for_each(move |message| {
             // post to manager
-            mgr.on_request_msg(message, &north);
-
-            Ok(())
+            if mgr.on_request_msg(message, &north) {
+                Ok(())
+            } else {
+                Err(std::io::Error::from(std::io::ErrorKind::NotConnected))
+            }
         });
 
         // Wait for either of futures to complete.

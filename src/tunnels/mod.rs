@@ -4,3 +4,5 @@ mod tunnel;
 pub use tunnel::*;
 mod theader;
 pub use theader::*;
+mod tunbuilder;
+pub use tunbuilder::*;
