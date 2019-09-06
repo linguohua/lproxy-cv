@@ -157,7 +157,7 @@ impl TunMgr {
             match t {
                 Some(tun) => {
                     if !tun.send_ping() {
-                        // TODO: close underlay tcpstream?
+                        // TODO: close underlay tcp-stream?
                     }
                 }
                 None => {}

@@ -8,6 +8,7 @@ use tokio;
 use tokio::codec::Decoder;
 use tokio::prelude::*;
 use tokio_codec::BytesCodec;
+use tokio_io_timeout::TimeoutStream;
 use tokio_tcp::TcpListener;
 use tokio_tcp::TcpStream;
 
@@ -58,6 +59,11 @@ impl Server {
         let rawfd = socket.as_raw_fd();
         let result = getsockopt(rawfd, OriginalDst).unwrap();
         println!("serve_sock dst:{:?}", result);
+
+        // set 2 seconds write-timeout
+        let mut socket = TimeoutStream::new(socket);
+        let wduration = Duration::new(2, 0);
+        socket.set_write_timeout(Some(wduration));
 
         let framed = BytesCodec::new().framed(socket);
         let (sink, stream) = framed.split();
