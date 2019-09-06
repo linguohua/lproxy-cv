@@ -1,14 +1,11 @@
-
 use super::TunMgr;
-use std::sync::Arc;
+use super::Tunnel;
 use futures::{Future, Sink, Stream};
+use std::sync::Arc;
 use tokio;
 use tokio_tungstenite::connect_async;
 use tokio_tungstenite::stream::PeerAddr;
 use url;
-use std::sync::Mutex;
-use crate::requests::Reqq;
-use super::Tunnel;
 
 pub fn connect(url: &str, mgr: &Arc<TunMgr>, index: usize) {
     let url = url::Url::parse(&url).unwrap();
@@ -17,6 +14,7 @@ pub fn connect(url: &str, mgr: &Arc<TunMgr>, index: usize) {
     let client = connect_async(url)
         .and_then(move |(ws_stream, _)| {
             println!("WebSocket handshake has been successfully completed");
+            // let inner = ws_stream.get_inner().get_ref();
 
             let addr = ws_stream
                 .peer_addr()
@@ -28,11 +26,7 @@ pub fn connect(url: &str, mgr: &Arc<TunMgr>, index: usize) {
             // data to us.
             let (tx, rx) = futures::sync::mpsc::unbounded();
 
-            let t = Tunnel {
-                tx: tx,
-                index: index,
-                requests: Mutex::new(Reqq::new(1)),
-            };
+            let t = Tunnel::new(tx, index);
 
             let mgr3 = mgr1.clone();
             mgr1.on_tunnel_created(index, t);
@@ -53,8 +47,14 @@ pub fn connect(url: &str, mgr: &Arc<TunMgr>, index: usize) {
             // Whenever we receive a string on the Receiver, we write it to
             // `WriteHalf<WebSocketStream>`.
             let send_fut = rx.fold(sink, |mut sink, msg| {
-                sink.start_send(msg).unwrap();
-                Ok(sink)
+                let s = sink.start_send(msg);
+                match s {
+                    Err(e) => {
+                        println!("serve_sock, start_send error:{}", e);
+                        Err(())
+                    }
+                    _ => Ok(sink),
+                }
             });
 
             // Wait for either of futures to complete.

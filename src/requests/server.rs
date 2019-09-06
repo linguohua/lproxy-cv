@@ -1,5 +1,9 @@
 use super::ReqMgr;
+use nix::sys::socket::getsockopt;
+use nix::sys::socket::sockopt::OriginalDst;
+use std::os::unix::io::AsRawFd;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio;
 use tokio::codec::Decoder;
 use tokio::prelude::*;
@@ -44,35 +48,62 @@ impl Server {
     }
 
     pub fn serve_sock(socket: TcpStream, mgr: Arc<ReqMgr>) {
+        // config tcp stream
+        socket.set_linger(None).unwrap();
+        let kduration = Duration::new(3, 0);
+        socket.set_keepalive(Some(kduration)).unwrap();
+        socket.set_nodelay(true).unwrap();
+
+        // get real dst address
+        let rawfd = socket.as_raw_fd();
+        let result = getsockopt(rawfd, OriginalDst).unwrap();
+        println!("serve_sock dst:{:?}", result);
+
         let framed = BytesCodec::new().framed(socket);
         let (sink, stream) = framed.split();
 
-        // let amt = io::copy(reader, writer);
         let (tx, rx) = futures::sync::mpsc::unbounded();
+        let tunstub = mgr.on_request_created(&tx);
+        if tunstub.is_none() {
+            // invalid tunnel
+            println!("failed to alloc tunnel for request!");
+            return;
+        }
 
         let send_fut = rx.fold(sink, |mut sink, msg| {
-            sink.start_send(msg).unwrap();
-            Ok(sink)
+            let s = sink.start_send(msg);
+            match s {
+                Err(e) => {
+                    println!("serve_sock, start_send error:{}", e);
+                    Err(())
+                }
+                _ => Ok(sink),
+            }
         });
 
-        let north = mgr.on_request_created(&tx);
-        let north1 = north.clone();
+        let tunstub = Arc::new(tunstub.unwrap());
+        let north1 = tunstub.clone();
         let mgr1 = mgr.clone();
 
+        // when peer send finished(FIN), then for-each(recv) future end
+        // and wait rx(send) futue end, when the server indicate that
+        // no more data, rx's pair tx will be drop, then mpsc end, rx
+        // future will end, thus both futures are ended;
+        // when peer total closed(RST), then both futures will end
         let receive_fut = stream.for_each(move |message| {
             // post to manager
-            if mgr.on_request_msg(message, &north) {
+            if mgr.on_request_msg(message, &tunstub) {
                 Ok(())
             } else {
                 Err(std::io::Error::from(std::io::ErrorKind::NotConnected))
             }
         });
 
-        // Wait for either of futures to complete.
+        // Wait for both futures to complete.
         let receive_fut = receive_fut
             .map(|_| ())
             .map_err(|_| ())
-            .select(send_fut.map(|_| ()).map_err(|_| ()))
+            .join(send_fut.map(|_| ()).map_err(|_| ()))
             .then(move |_| {
                 mgr1.on_request_closed(&north1);
 

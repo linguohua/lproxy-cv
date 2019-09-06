@@ -1,11 +1,14 @@
+use super::tunbuilder;
 use super::Tunnel;
 use crate::config::TunCfg;
+use crate::requests::TunStub;
 use bytes::Bytes;
 use futures::sync::mpsc::UnboundedSender;
 use std::sync::Arc;
-use super::tunbuilder;
-use crate::requests::TunStub;
 use std::sync::Mutex;
+use std::time::{Duration, Instant};
+use tokio::prelude::*;
+use tokio::timer::Interval;
 use tungstenite::protocol::Message;
 
 type TunnelItem = Option<Arc<Tunnel>>;
@@ -33,6 +36,8 @@ impl TunMgr {
             let mgr = self.clone();
             tunbuilder::connect(&cfg.url, &mgr, index);
         }
+
+        self.clone().start_keepalive_timer();
     }
 
     pub fn on_tunnel_created(&self, index: usize, tun: Tunnel) {
@@ -95,9 +100,8 @@ impl TunMgr {
         }
     }
 
-    pub fn on_request_created(&self, req_tx: &UnboundedSender<Bytes>) -> Arc<TunStub> {
-        let tidx = 0;
-        let tun = self.get_tunnel(tidx).unwrap();
+    pub fn on_request_created(&self, req_tx: &UnboundedSender<Bytes>) -> Option<TunStub> {
+        let tun = self.alloc_tunnel_for_req().unwrap();
         tun.on_request_created(req_tx)
     }
 
@@ -105,5 +109,59 @@ impl TunMgr {
         let tidx = tunstub.tun_idx;
         let tun = self.get_tunnel(tidx as usize).unwrap();
         tun.on_request_closed(tunstub);
+    }
+
+    fn alloc_tunnel_for_req(&self) -> TunnelItem {
+        let tunnels = self.tunnels.lock().unwrap();
+        let mut tselected = None;
+        let mut rtt = std::u64::MAX;
+        let mut req_count = std::u16::MAX;
+
+        for t in tunnels.iter() {
+            match t {
+                Some(tun) => {
+                    let rtt_tun = tun.get_rtt();
+                    let req_count_tun = tun.get_req_count();
+                    if rtt_tun < rtt {
+                        rtt = rtt_tun;
+                        tselected = Some(tun.clone());
+                    } else if req_count_tun < req_count {
+                        req_count = req_count_tun;
+                        tselected = Some(tun.clone());
+                    }
+                }
+                None => {}
+            }
+        }
+
+        tselected
+    }
+
+    fn start_keepalive_timer(self: Arc<TunMgr>) {
+        // tokio timer, every 3 seconds
+        let task = Interval::new(Instant::now(), Duration::from_millis(3000))
+            .for_each(move |instant| {
+                println!("fire; instant={:?}", instant);
+                self.send_pings();
+
+                Ok(())
+            })
+            .map_err(|e| panic!("interval errored; err={:?}", e));
+
+        tokio::spawn(task);
+    }
+
+    fn send_pings(&self) {
+        let tunnels = self.tunnels.lock().unwrap();
+        for t in tunnels.iter() {
+            match t {
+                Some(tun) => {
+                    if !tun.send_ping() {
+                        // TODO: close underlay tcpstream?
+                    }
+                }
+                None => {}
+            }
+        }
     }
 }

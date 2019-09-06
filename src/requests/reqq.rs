@@ -40,16 +40,16 @@ impl Reqq {
         (idx as u16, req.tag)
     }
 
-    pub fn free(&mut self, idx: u16, tag: u16) {
+    pub fn free(&mut self, idx: u16, tag: u16) -> bool {
         let elements = &mut self.elements;
         if idx as usize >= elements.len() {
-            return;
+            return false;
         }
 
         let req = &mut elements[idx as usize];
 
         if req.tag != tag {
-            return;
+            return false;
         }
 
         req.tag = req.tag + 1;
@@ -57,6 +57,8 @@ impl Reqq {
 
         let free = &mut self.free;
         free.push(idx as usize);
+
+        true
     }
 
     pub fn clear_all(&mut self) {
