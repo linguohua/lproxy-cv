@@ -7,19 +7,21 @@ use tokio_tungstenite::connect_async;
 use tokio_tungstenite::stream::PeerAddr;
 use url;
 
+use log::{debug, error};
+
 pub fn connect(url: &str, mgr: &Arc<TunMgr>, index: usize) {
     let url = url::Url::parse(&url).unwrap();
 
     let mgr1 = mgr.clone();
     let client = connect_async(url)
         .and_then(move |(ws_stream, _)| {
-            println!("WebSocket handshake has been successfully completed");
+            debug!("WebSocket handshake has been successfully completed");
             // let inner = ws_stream.get_inner().get_ref();
 
             let addr = ws_stream
                 .peer_addr()
                 .expect("connected streams should have a peer address");
-            println!("Peer address: {}", addr);
+            debug!("Peer address: {}", addr);
 
             // Create a channel for our stream, which other sockets will use to
             // send us messages. Then register our address with the stream to send
@@ -34,6 +36,7 @@ pub fn connect(url: &str, mgr: &Arc<TunMgr>, index: usize) {
             let (sink, stream) = ws_stream.split();
 
             let receive_fut = stream.for_each(move |message| {
+                debug!("tunnel read a message");
                 // post to manager
                 if t.on_tunnel_msg(message) {
                     Ok(())
@@ -45,10 +48,11 @@ pub fn connect(url: &str, mgr: &Arc<TunMgr>, index: usize) {
             // Whenever we receive a string on the Receiver, we write it to
             // `WriteHalf<WebSocketStream>`.
             let send_fut = rx.fold(sink, |mut sink, msg| {
+                debug!("tunnel try to send msg");
                 let s = sink.start_send(msg);
                 match s {
                     Err(e) => {
-                        println!("serve_sock, start_send error:{}", e);
+                        error!("serve_sock, start_send error:{}", e);
                         Err(())
                     }
                     _ => Ok(sink),
@@ -67,7 +71,7 @@ pub fn connect(url: &str, mgr: &Arc<TunMgr>, index: usize) {
             // ok(index)
         })
         .map_err(|e| {
-            println!("Error during the websocket handshake occurred: {}", e);
+            error!("Error during the websocket handshake occurred: {}", e);
             ()
         });
 

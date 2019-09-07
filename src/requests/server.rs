@@ -1,4 +1,5 @@
 use super::ReqMgr;
+use log::{debug, error};
 use nix::sys::socket::getsockopt;
 use nix::sys::socket::sockopt::OriginalDst;
 use std::os::unix::io::AsRawFd;
@@ -34,7 +35,7 @@ impl Server {
         // Pull out a stream of sockets for incoming connections
         let server = listener
             .incoming()
-            .map_err(|e| eprintln!("accept failed = {:?}", e))
+            .map_err(|e| error!("accept failed = {:?}", e))
             .for_each(move |sock| {
                 // service new socket
                 let mgr = mgr.clone();
@@ -58,7 +59,7 @@ impl Server {
         // get real dst address
         let rawfd = socket.as_raw_fd();
         let result = getsockopt(rawfd, OriginalDst).unwrap();
-        println!("serve_sock dst:{:?}", result);
+        debug!("serve_sock dst:{:?}", result);
 
         // set 2 seconds write-timeout
         let mut socket = TimeoutStream::new(socket);
@@ -72,7 +73,7 @@ impl Server {
         let tunstub = mgr.on_request_created(&tx, &result);
         if tunstub.is_none() {
             // invalid tunnel
-            println!("failed to alloc tunnel for request!");
+            error!("failed to alloc tunnel for request!");
             return;
         }
 
@@ -80,7 +81,7 @@ impl Server {
             let s = sink.start_send(msg);
             match s {
                 Err(e) => {
-                    println!("serve_sock, start_send error:{}", e);
+                    error!("serve_sock, start_send error:{}", e);
                     Err(())
                 }
                 _ => Ok(sink),

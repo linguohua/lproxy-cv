@@ -6,6 +6,7 @@ use crate::tunnels::theader::THEADER_SIZE;
 use byte::*;
 use bytes::Bytes;
 use futures::sync::mpsc::UnboundedSender;
+use log::{debug, error};
 use std::sync::atomic::{AtomicU16, AtomicU64, AtomicU8, Ordering};
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -47,7 +48,7 @@ impl Tunnel {
         }
 
         if !msg.is_binary() {
-            println!("tunnel should only handle binary msg!");
+            debug!("tunnel should only handle binary msg!");
             return true;
         }
 
@@ -62,7 +63,7 @@ impl Tunnel {
                 let tx = self.get_request_tx(req_idx, req_tag);
                 match tx {
                     None => {
-                        println!("no request found for: {}:{}", req_idx, req_tag);
+                        debug!("no request found for: {}:{}", req_idx, req_tag);
                         return false;
                     }
                     Some(tx) => {
@@ -70,7 +71,7 @@ impl Tunnel {
                         let result = tx.unbounded_send(b);
                         match result {
                             Err(e) => {
-                                println!("tunnel msg send to request failed:{}", e);
+                                debug!("tunnel msg send to request failed:{}", e);
                                 return false;
                             }
                             _ => {}
@@ -79,7 +80,7 @@ impl Tunnel {
                 }
             }
             _ => {
-                println!("unsupport cmd:{:?}, discard msg", cmd);
+                error!("unsupport cmd:{:?}, discard msg", cmd);
             }
         }
 
@@ -90,7 +91,7 @@ impl Tunnel {
         let bs = msg.into_data();
         let len = bs.len();
         if len != 8 {
-            println!("pong data length({}) != 8", len);
+            error!("pong data length({}) != 8", len);
             return;
         }
 
@@ -213,7 +214,7 @@ impl Tunnel {
         let r = self.tx.unbounded_send(msg);
         match r {
             Err(e) => {
-                println!("tunnel send_ping error:{}", e);
+                error!("tunnel send_ping error:{}", e);
             }
             _ => {
                 // TODO: update un-ack ping rtt?

@@ -1,6 +1,7 @@
 use super::Request;
 use bytes::Bytes;
 use futures::sync::mpsc::UnboundedSender;
+use log::error;
 
 pub struct Reqq {
     pub elements: Vec<Request>,
@@ -27,7 +28,7 @@ impl Reqq {
         let elements = &mut self.elements;
 
         if free.len() < 1 {
-            println!("alloc failed, no free slot in reqq");
+            error!("alloc failed, no free slot in reqq");
 
             return (std::u16::MAX, std::u16::MAX);
         }

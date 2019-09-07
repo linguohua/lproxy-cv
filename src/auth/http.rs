@@ -5,6 +5,7 @@ use native_tls::TlsConnector;
 use std::io;
 use url::Url;
 
+#[derive(Debug)]
 pub struct HTTPRequest {
     url_parsed: Url,
 }

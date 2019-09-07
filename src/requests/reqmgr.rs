@@ -6,6 +6,7 @@ use crate::tunnels::{Cmd, THeader};
 use bytes::Bytes;
 use bytes::BytesMut;
 use futures::sync::mpsc::UnboundedSender;
+use log::error;
 use std::sync::Arc;
 use tungstenite::protocol::Message;
 
@@ -44,7 +45,7 @@ impl ReqMgr {
         let result = tx.unbounded_send(wmsg);
         match result {
             Err(e) => {
-                println!("request tun send error:{}, tun_tx maybe closed", e);
+                error!("request tun send error:{}, tun_tx maybe closed", e);
                 return false;
             }
             _ => {}
@@ -67,7 +68,7 @@ impl ReqMgr {
 
         match result {
             Err(e) => {
-                println!(
+                error!(
                     "on_request_recv_finished, tun send error:{}, tun_tx maybe closed",
                     e
                 );

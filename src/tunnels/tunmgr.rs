@@ -4,6 +4,7 @@ use crate::config::TunCfg;
 use crate::requests::TunStub;
 use bytes::Bytes;
 use futures::sync::mpsc::UnboundedSender;
+use log::{debug, error};
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -131,12 +132,12 @@ impl TunMgr {
         // tokio timer, every 3 seconds
         let task = Interval::new(Instant::now(), Duration::from_millis(3000))
             .for_each(move |instant| {
-                println!("fire; instant={:?}", instant);
+                debug!("keepalive timer fire; instant={:?}", instant);
                 self.send_pings();
 
                 Ok(())
             })
-            .map_err(|e| panic!("interval errored; err={:?}", e));
+            .map_err(|e| error!("interval errored; err={:?}", e));
 
         tokio::spawn(task);
     }
