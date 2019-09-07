@@ -9,34 +9,9 @@ use tokio::timer::Delay;
 
 use log::{error, trace};
 
-use log::{Level, Metadata, Record};
-
-struct SimpleLogger;
-
-impl log::Log for SimpleLogger {
-    fn enabled(&self, metadata: &Metadata) -> bool {
-        metadata.level() <= Level::Debug
-    }
-
-    fn log(&self, record: &Record) {
-        if self.enabled(record.metadata()) {
-            println!("{} - {}", record.level(), record.args());
-        }
-    }
-
-    fn flush(&self) {}
-}
-
-use log::{LevelFilter, SetLoggerError};
-
-static LOGGER: SimpleLogger = SimpleLogger;
-
-pub fn init() -> Result<(), SetLoggerError> {
-    log::set_logger(&LOGGER).map(|()| log::set_max_level(LevelFilter::Debug))
-}
-
 fn main() {
-    init().unwrap();
+    config::log_init().unwrap();
+
     trace!("try to start lproxy-cv server..");
 
     let req = auth::HTTPRequest::new("https://localhost:5000/auth").unwrap();
