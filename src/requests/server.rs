@@ -89,7 +89,6 @@ impl Server {
 
         let tunstub = Arc::new(tunstub.unwrap());
         let north1 = tunstub.clone();
-        let mgr1 = mgr.clone();
 
         // when peer send finished(FIN), then for-each(recv) future end
         // and wait rx(send) futue end, when the server indicate that
@@ -98,20 +97,28 @@ impl Server {
         // when peer total closed(RST), then both futures will end
         let receive_fut = stream.for_each(move |message| {
             // post to manager
-            if mgr.on_request_msg(message, &tunstub) {
+            if ReqMgr::on_request_msg(message, &tunstub) {
                 Ok(())
             } else {
                 Err(std::io::Error::from(std::io::ErrorKind::NotConnected))
             }
         });
 
+        let north2 = north1.clone();
+        let receive_fut = receive_fut.and_then(move |_| {
+            // client(of request) send finished(FIN), indicate that
+            // no more data to send
+            ReqMgr::on_request_recv_finished(&north2);
+
+            Ok(())
+        });
+
         // Wait for both futures to complete.
         let receive_fut = receive_fut
-            .map(|_| ())
             .map_err(|_| ())
-            .join(send_fut.map(|_| ()).map_err(|_| ()))
+            .join(send_fut.map_err(|_| ()))
             .then(move |_| {
-                mgr1.on_request_closed(&north1);
+                mgr.on_request_closed(&north1);
 
                 Ok(())
             });

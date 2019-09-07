@@ -1,8 +1,8 @@
-use super::TunStub;
 use super::Server;
-use crate::tunnels::THeader;
+use super::TunStub;
 use crate::tunnels::TunMgr;
 use crate::tunnels::THEADER_SIZE;
+use crate::tunnels::{Cmd, THeader};
 use bytes::Bytes;
 use bytes::BytesMut;
 use futures::sync::mpsc::UnboundedSender;
@@ -28,7 +28,7 @@ impl ReqMgr {
         s.start(&self);
     }
 
-    pub fn on_request_msg(&self, message: BytesMut, tun: &Arc<TunStub>) -> bool {
+    pub fn on_request_msg(message: BytesMut, tun: &Arc<TunStub>) -> bool {
         let size = message.len();
         let hsize = THEADER_SIZE;
         let buf = &mut vec![0; hsize + size];
@@ -53,12 +53,39 @@ impl ReqMgr {
         true
     }
 
+    pub fn on_request_recv_finished(tun: &Arc<TunStub>) {
+        let hsize = THEADER_SIZE;
+        let buf = &mut vec![0; hsize];
+
+        let th = THeader::new(Cmd::ReqClientFinished, tun.req_idx, tun.req_tag);
+        let msg_header = &mut buf[0..hsize];
+        th.write_to(msg_header);
+
+        let wmsg = Message::from(&buf[..]);
+        let tx = &tun.tunnel_tx;
+        let result = tx.unbounded_send(wmsg);
+
+        match result {
+            Err(e) => {
+                println!(
+                    "on_request_recv_finished, tun send error:{}, tun_tx maybe closed",
+                    e
+                );
+            }
+            _ => {}
+        }
+    }
+
     pub fn on_request_closed(&self, tunstub: &Arc<TunStub>) {
         let tm = &self.tm;
         tm.on_request_closed(tunstub)
     }
 
-    pub fn on_request_created(&self, req_tx: &UnboundedSender<Bytes>, dst: &libc::sockaddr_in) -> Option<TunStub> {
+    pub fn on_request_created(
+        &self,
+        req_tx: &UnboundedSender<Bytes>,
+        dst: &libc::sockaddr_in,
+    ) -> Option<TunStub> {
         let tm = &self.tm;
         tm.on_request_created(req_tx, dst)
     }
