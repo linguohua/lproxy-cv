@@ -1,6 +1,8 @@
+mod auth;
 mod config;
 mod requests;
 mod tunnels;
+
 use futures::future;
 
 fn main() {
