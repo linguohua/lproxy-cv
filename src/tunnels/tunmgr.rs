@@ -9,7 +9,6 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use tokio::prelude::*;
 use tokio::timer::Interval;
-use tungstenite::protocol::Message;
 
 type TunnelItem = Option<Arc<Tunnel>>;
 
@@ -40,7 +39,8 @@ impl TunMgr {
         self.clone().start_keepalive_timer();
     }
 
-    pub fn on_tunnel_created(&self, index: usize, tun: Tunnel) {
+    pub fn on_tunnel_created(&self, tun: &Arc<Tunnel>) {
+        let index = tun.index;
         let mut tunnels = self.tunnels.lock().unwrap();
         let t = &tunnels[index];
 
@@ -48,7 +48,7 @@ impl TunMgr {
             panic!("there is tunnel at {} already!", index);
         }
 
-        tunnels[index] = Some(Arc::new(tun));
+        tunnels[index] = Some(tun.clone());
     }
 
     pub fn on_tunnel_closed(&self, index: usize) {
@@ -76,20 +76,6 @@ impl TunMgr {
         }
     }
 
-    pub fn on_tunnel_msg(&self, msg: Message, index: usize) -> bool {
-        let tun = self.get_tunnel(index);
-        match tun {
-            Some(tun) => {
-                return tun.on_tunnel_msg(msg);
-            }
-            None => {
-                println!("no tunnel found for:{}, discard msg", index);
-            }
-        }
-
-        return true;
-    }
-
     fn get_tunnel(&self, index: usize) -> TunnelItem {
         let tunnels = self.tunnels.lock().unwrap();
         let tun = &tunnels[index];
@@ -100,9 +86,13 @@ impl TunMgr {
         }
     }
 
-    pub fn on_request_created(&self, req_tx: &UnboundedSender<Bytes>) -> Option<TunStub> {
+    pub fn on_request_created(
+        &self,
+        req_tx: &UnboundedSender<Bytes>,
+        dst: &libc::sockaddr_in,
+    ) -> Option<TunStub> {
         let tun = self.alloc_tunnel_for_req().unwrap();
-        tun.on_request_created(req_tx)
+        tun.on_request_created(req_tx, dst)
     }
 
     pub fn on_request_closed(&self, tunstub: &Arc<TunStub>) {

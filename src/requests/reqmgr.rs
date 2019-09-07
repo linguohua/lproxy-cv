@@ -58,8 +58,8 @@ impl ReqMgr {
         tm.on_request_closed(tunstub)
     }
 
-    pub fn on_request_created(&self, req_tx: &UnboundedSender<Bytes>) -> Option<TunStub> {
+    pub fn on_request_created(&self, req_tx: &UnboundedSender<Bytes>, dst: &libc::sockaddr_in) -> Option<TunStub> {
         let tm = &self.tm;
-        tm.on_request_created(req_tx)
+        tm.on_request_created(req_tx, dst)
     }
 }

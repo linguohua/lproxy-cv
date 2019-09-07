@@ -2,6 +2,7 @@ use super::Cmd;
 use super::THeader;
 use crate::requests::Reqq;
 use crate::requests::TunStub;
+use crate::tunnels::theader::THEADER_SIZE;
 use byte::*;
 use bytes::Bytes;
 use futures::sync::mpsc::UnboundedSender;
@@ -141,7 +142,23 @@ impl Tunnel {
         None
     }
 
-    pub fn on_request_created(&self, req_tx: &UnboundedSender<Bytes>) -> Option<TunStub> {
+    pub fn on_request_created(
+        &self,
+        req_tx: &UnboundedSender<Bytes>,
+        dst: &libc::sockaddr_in,
+    ) -> Option<TunStub> {
+        let ts = self.on_request_created_internal(req_tx);
+        match ts {
+            Some(ts) => {
+                Tunnel::send_request_created_to_server(&ts, dst);
+
+                Some(ts)
+            }
+            None => None,
+        }
+    }
+
+    fn on_request_created_internal(&self, req_tx: &UnboundedSender<Bytes>) -> Option<TunStub> {
         let reqs = &mut self.requests.lock().unwrap();
         let (idx, tag) = reqs.alloc(req_tx);
         let tun_idx;
@@ -150,8 +167,6 @@ impl Tunnel {
         } else {
             return None;
         }
-
-        // TODO: send notify to server
 
         let tx = self.tx.clone();
         self.req_count.fetch_add(1, Ordering::SeqCst);
@@ -165,13 +180,13 @@ impl Tunnel {
     }
 
     pub fn on_request_closed(&self, tunstub: &Arc<TunStub>) {
-        // TODO: send notify to server
-
         let reqs = &mut self.requests.lock().unwrap();
         let r = reqs.free(tunstub.req_idx, tunstub.req_tag);
 
         if r {
             self.req_count.fetch_sub(1, Ordering::SeqCst);
+
+            Tunnel::send_request_closed_to_server(tunstub);
         }
     }
 
@@ -216,5 +231,50 @@ impl Tunnel {
         }
 
         false
+    }
+
+    fn send_request_created_to_server(ts: &TunStub, dst: &libc::sockaddr_in) {
+        // send request to server
+        let size = 1 + 4 + 2; // family + ipv4 + port;
+        let hsize = THEADER_SIZE;
+        let buf = &mut vec![0; hsize + size];
+
+        let th = THeader::new(Cmd::ReqCreated, ts.req_idx, ts.req_tag);
+        let msg_header = &mut buf[0..hsize];
+        th.write_to(msg_header);
+        let msg_body = &mut buf[hsize..];
+
+        let offset = &mut 0;
+        msg_body
+            .write_with::<u8>(offset, dst.sin_family as u8, LE)
+            .unwrap();
+        msg_body
+            .write_with::<u32>(offset, dst.sin_addr.s_addr as u32, LE)
+            .unwrap();
+        msg_body
+            .write_with::<u16>(offset, dst.sin_port as u16, LE)
+            .unwrap();
+
+        // websocket message
+        let wmsg = Message::from(&buf[..]);
+
+        // send to peer, should always succeed
+        ts.tunnel_tx.unbounded_send(wmsg).unwrap();
+    }
+
+    fn send_request_closed_to_server(ts: &TunStub) {
+        // send request to server
+        let hsize = THEADER_SIZE;
+        let buf = &mut vec![0; hsize];
+
+        let th = THeader::new(Cmd::ReqClientClosed, ts.req_idx, ts.req_tag);
+        let msg_header = &mut buf[0..hsize];
+        th.write_to(msg_header);
+
+        // websocket message
+        let wmsg = Message::from(&buf[..]);
+
+        // send to peer, should always succeed
+        ts.tunnel_tx.unbounded_send(wmsg).unwrap();
     }
 }

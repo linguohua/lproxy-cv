@@ -69,7 +69,7 @@ impl Server {
         let (sink, stream) = framed.split();
 
         let (tx, rx) = futures::sync::mpsc::unbounded();
-        let tunstub = mgr.on_request_created(&tx);
+        let tunstub = mgr.on_request_created(&tx, &result);
         if tunstub.is_none() {
             // invalid tunnel
             println!("failed to alloc tunnel for request!");

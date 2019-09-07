@@ -362,9 +362,11 @@ dependencies = [
  "bytes 0.4.12 (registry+https://github.com/rust-lang/crates.io-index)",
  "failure 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "futures 0.1.28 (registry+https://github.com/rust-lang/crates.io-index)",
+ "libc 0.2.62 (registry+https://github.com/rust-lang/crates.io-index)",
  "nix 0.15.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "tokio 0.1.22 (registry+https://github.com/rust-lang/crates.io-index)",
  "tokio-codec 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "tokio-dns-unofficial 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "tokio-io-timeout 0.3.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "tokio-tcp 0.1.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "tokio-tungstenite 0.9.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -902,6 +904,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "tokio-dns-unofficial"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+dependencies = [
+ "futures 0.1.28 (registry+https://github.com/rust-lang/crates.io-index)",
+ "futures-cpupool 0.1.8 (registry+https://github.com/rust-lang/crates.io-index)",
+ "lazy_static 1.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "tokio 0.1.22 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
 name = "tokio-executor"
 version = "0.1.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1284,6 +1297,7 @@ dependencies = [
 "checksum tokio-codec 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)" = "5c501eceaf96f0e1793cf26beb63da3d11c738c4a943fdf3746d81d64684c39f"
 "checksum tokio-current-thread 0.1.6 (registry+https://github.com/rust-lang/crates.io-index)" = "d16217cad7f1b840c5a97dfb3c43b0c871fef423a6e8d2118c604e843662a443"
 "checksum tokio-dns-unofficial 0.3.1 (registry+https://github.com/rust-lang/crates.io-index)" = "bb9bf62ca2c53bf2f2faec3e48a98b6d8c9577c27011cb0203a4beacdc8ab328"
+"checksum tokio-dns-unofficial 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)" = "82c65483db54eb91b4ef3a9389a3364558590faf30ce473141707c0e16fda975"
 "checksum tokio-executor 0.1.8 (registry+https://github.com/rust-lang/crates.io-index)" = "0f27ee0e6db01c5f0b2973824547ce7e637b2ed79b891a9677b0de9bd532b6ac"
 "checksum tokio-fs 0.1.6 (registry+https://github.com/rust-lang/crates.io-index)" = "3fe6dc22b08d6993916647d108a1a7d15b9cd29c4f4496c62b92c45b5041b7af"
 "checksum tokio-io 0.1.12 (registry+https://github.com/rust-lang/crates.io-index)" = "5090db468dad16e1a7a54c8c67280c5e4b544f3d3e018f0b913b400261f85926"

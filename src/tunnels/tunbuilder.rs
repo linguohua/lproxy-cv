@@ -26,10 +26,8 @@ pub fn connect(url: &str, mgr: &Arc<TunMgr>, index: usize) {
             // data to us.
             let (tx, rx) = futures::sync::mpsc::unbounded();
 
-            let t = Tunnel::new(tx, index);
-
-            let mgr3 = mgr1.clone();
-            mgr1.on_tunnel_created(index, t);
+            let t = Arc::new(Tunnel::new(tx, index));
+            mgr1.on_tunnel_created(&t);
 
             // `sink` is the stream of messages going out.
             // `stream` is the stream of incoming messages.
@@ -37,7 +35,7 @@ pub fn connect(url: &str, mgr: &Arc<TunMgr>, index: usize) {
 
             let receive_fut = stream.for_each(move |message| {
                 // post to manager
-                if mgr1.on_tunnel_msg(message, index) {
+                if t.on_tunnel_msg(message) {
                     Ok(())
                 } else {
                     Err(tungstenite::Error::ConnectionClosed)
@@ -63,7 +61,7 @@ pub fn connect(url: &str, mgr: &Arc<TunMgr>, index: usize) {
                 .map_err(|_| ())
                 .select(send_fut.map(|_| ()).map_err(|_| ()))
                 .then(move |_| {
-                    mgr3.on_tunnel_closed(index);
+                    mgr1.on_tunnel_closed(index);
                     Ok(())
                 })
             // ok(index)

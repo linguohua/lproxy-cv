@@ -22,16 +22,16 @@ pub struct THeader {
 }
 
 impl THeader {
-    pub fn new(cmd: u8, idx: u16, tag: u16) -> THeader {
+    pub fn new(cmd: Cmd, idx: u16, tag: u16) -> THeader {
         THeader {
-            cmd: cmd,
+            cmd: cmd as u8,
             req_idx: idx,
             req_tag: tag,
         }
     }
 
     pub fn new_data_header(idx: u16, tag: u16) -> THeader {
-        THeader::new(Cmd::ReqData as u8, idx, tag)
+        THeader::new(Cmd::ReqData, idx, tag)
     }
 
     pub fn read_from(bs: &[u8]) -> THeader {
@@ -40,7 +40,7 @@ impl THeader {
         let req_idx = bs.read_with::<u16>(offset, LE).unwrap();
         let req_tag = bs.read_with::<u16>(offset, LE).unwrap();
 
-        THeader::new(cmd, req_idx, req_tag)
+        THeader::new(Cmd::from(cmd), req_idx, req_tag)
     }
 
     pub fn write_to(&self, bs: &mut [u8]) {
