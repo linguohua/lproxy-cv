@@ -3,6 +3,7 @@ use super::Tunnel;
 use crate::config::TunCfg;
 use crate::requests::TunStub;
 use bytes::Bytes;
+use crossbeam::queue::ArrayQueue;
 use futures::sync::mpsc::UnboundedSender;
 use log::info;
 use log::{debug, error};
@@ -12,32 +13,41 @@ use std::time::{Duration, Instant};
 use tokio::prelude::*;
 use tokio::timer::Interval;
 
-pub const KEEP_ALIVE_INTERVAL:u64 = 3000;
+pub const KEEP_ALIVE_INTERVAL: u64 = 3000;
 
 type TunnelItem = Option<Arc<Tunnel>>;
 
 pub struct TunMgr {
+    url: String,
+    capacity: usize,
     tunnels: Mutex<Vec<TunnelItem>>,
+    reconnect_queue: ArrayQueue<u16>,
 }
 
 impl TunMgr {
-    pub fn new(capacity: usize) -> Arc<TunMgr> {
-        let vec = Vec::with_capacity(capacity);
-        let m = Mutex::new(vec);
-        Arc::new(TunMgr { tunnels: m })
-    }
+    pub fn new(cfg: &TunCfg) -> Arc<TunMgr> {
+        let capacity = cfg.number;
 
-    pub fn init(self: Arc<TunMgr>, cfg: &TunCfg) {
-        let mut vec = self.tunnels.lock().unwrap();
-
+        let mut vec = Vec::with_capacity(capacity);
         for _ in 0..cfg.number {
             vec.push(None);
         }
 
-        for n in 0..cfg.number {
+        let m = Mutex::new(vec);
+
+        Arc::new(TunMgr {
+            url: cfg.url.to_string(),
+            capacity: capacity,
+            tunnels: m,
+            reconnect_queue: ArrayQueue::new(capacity),
+        })
+    }
+
+    pub fn init(self: Arc<TunMgr>) {
+        for n in 0..self.capacity {
             let index = n;
             let mgr = self.clone();
-            tunbuilder::connect(&cfg.url, &mgr, index);
+            tunbuilder::connect(&self.url, &mgr, index);
         }
 
         self.clone().start_keepalive_timer();
@@ -62,6 +72,10 @@ impl TunMgr {
         match t {
             Some(t) => {
                 t.on_closed();
+                if let Err(e) = self.reconnect_queue.push(index as u16) {
+                    panic!("reconnect_queue push failed:{}", e);
+                }
+
                 info!("tunnel closed, index:{}", index);
             }
             None => {}
@@ -141,6 +155,8 @@ impl TunMgr {
                 debug!("keepalive timer fire; instant={:?}", instant);
                 self.send_pings();
 
+                self.clone().process_reconnect();
+
                 Ok(())
             })
             .map_err(|e| error!("start_keepalive_timer interval errored; err={:?}", e));
@@ -158,6 +174,18 @@ impl TunMgr {
                     }
                 }
                 None => {}
+            }
+        }
+    }
+
+    fn process_reconnect(self: Arc<TunMgr>) {
+        loop {
+            if let Ok(index) = self.reconnect_queue.pop() {
+                info!("process_reconnect, index:{}", index);
+
+                tunbuilder::connect(&self.url, &self, index as usize);
+            } else {
+                break;
             }
         }
     }

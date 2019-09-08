@@ -21,10 +21,10 @@ fn main() {
             .and_then(|response| {
                 debug!("http response:{:?}", response);
                 let cfg = config::TunCfg::new();
-                let tunmgr = tunnels::TunMgr::new(cfg.number);
+                let tunmgr = tunnels::TunMgr::new(&cfg);
                 let reqmgr = requests::ReqMgr::new(&tunmgr);
 
-                tunmgr.init(&cfg);
+                tunmgr.init();
                 reqmgr.init();
 
                 Ok(true)
