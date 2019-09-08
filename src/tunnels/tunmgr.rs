@@ -12,6 +12,8 @@ use std::time::{Duration, Instant};
 use tokio::prelude::*;
 use tokio::timer::Interval;
 
+pub const KEEP_ALIVE_INTERVAL:u64 = 3000;
+
 type TunnelItem = Option<Arc<Tunnel>>;
 
 pub struct TunMgr {
@@ -109,7 +111,7 @@ impl TunMgr {
     fn alloc_tunnel_for_req(&self) -> TunnelItem {
         let tunnels = self.tunnels.lock().unwrap();
         let mut tselected = None;
-        let mut rtt = std::u64::MAX;
+        let mut rtt = std::i64::MAX;
         let mut req_count = std::u16::MAX;
 
         for t in tunnels.iter() {
@@ -134,14 +136,14 @@ impl TunMgr {
 
     fn start_keepalive_timer(self: Arc<TunMgr>) {
         // tokio timer, every 3 seconds
-        let task = Interval::new(Instant::now(), Duration::from_millis(3000))
+        let task = Interval::new(Instant::now(), Duration::from_millis(KEEP_ALIVE_INTERVAL))
             .for_each(move |instant| {
                 debug!("keepalive timer fire; instant={:?}", instant);
                 self.send_pings();
 
                 Ok(())
             })
-            .map_err(|e| error!("interval errored; err={:?}", e));
+            .map_err(|e| error!("start_keepalive_timer interval errored; err={:?}", e));
 
         tokio::spawn(task);
     }

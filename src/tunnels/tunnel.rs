@@ -5,10 +5,11 @@ use crate::requests::TunStub;
 use crate::tunnels::theader::THEADER_SIZE;
 use byte::*;
 use bytes::Bytes;
+use crossbeam::queue::ArrayQueue;
 use futures::sync::mpsc::UnboundedSender;
 use log::info;
 use log::{debug, error};
-use std::sync::atomic::{AtomicU16, AtomicU64, AtomicU8, Ordering};
+use std::sync::atomic::{AtomicI64, AtomicU16, AtomicU8, Ordering};
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::Instant;
@@ -20,7 +21,9 @@ pub struct Tunnel {
 
     pub requests: Mutex<Reqq>,
 
-    rtt: AtomicU64,
+    rtt_queue: ArrayQueue<i64>,
+
+    rtt_sum: AtomicI64,
     req_count: AtomicU16,
     ping_count: AtomicU8,
 
@@ -29,12 +32,21 @@ pub struct Tunnel {
 
 impl Tunnel {
     pub fn new(tx: UnboundedSender<Message>, idx: usize) -> Tunnel {
+        let size = 5;
+        let rtt_queue = ArrayQueue::new(size);
+        for _ in 0..size {
+            if let Err(e) = rtt_queue.push(0) {
+                panic!("init rtt_queue failed:{}", e);
+            }
+        }
+
         Tunnel {
             tx: tx,
             index: idx,
             requests: Mutex::new(Reqq::new(1)),
 
-            rtt: AtomicU64::new(10000),
+            rtt_queue: rtt_queue,
+            rtt_sum: AtomicI64::new(0),
             req_count: AtomicU16::new(0),
             ping_count: AtomicU8::new(0),
             time: Instant::now(),
@@ -106,11 +118,23 @@ impl Tunnel {
         assert!(in_ms >= timestamp, "pong timestamp > now!");
 
         let rtt = in_ms - timestamp;
-        self.rtt.store(rtt, Ordering::SeqCst);
+        let rtt = rtt as i64;
+        self.append_rtt(rtt);
     }
 
-    pub fn get_rtt(&self) -> u64 {
-        self.rtt.load(Ordering::SeqCst)
+    fn append_rtt(&self, rtt: i64) {
+        if let Ok(rtt_remove) = self.rtt_queue.pop() {
+            if let Err(e) = self.rtt_queue.push(rtt) {
+                panic!("rtt_quque push failed:{}", e);
+            }
+
+            self.rtt_sum.fetch_add(rtt - rtt_remove, Ordering::SeqCst);
+        }
+    }
+
+    pub fn get_rtt(&self) -> i64 {
+        let rtt_sum = self.rtt_sum.load(Ordering::SeqCst);
+        rtt_sum / (self.rtt_queue.len() as i64)
     }
 
     pub fn get_req_count(&self) -> u16 {
@@ -204,8 +228,9 @@ impl Tunnel {
     }
 
     pub fn send_ping(&self) -> bool {
-        if self.check_ping_count_exhaust() {
-            return false;
+        let ping_count = self.ping_count.load(Ordering::SeqCst) as i64;
+        if ping_count > 10 {
+            return true;
         }
 
         let timestamp = self.get_elapsed_milliseconds();
@@ -221,21 +246,15 @@ impl Tunnel {
                 error!("tunnel send_ping error:{}", e);
             }
             _ => {
-                // TODO: update un-ack ping rtt?
                 self.ping_count.fetch_add(1, Ordering::SeqCst);
+                if ping_count > 0 {
+                    // TODO: fix accurate RTT?
+                    self.append_rtt(ping_count * (super::KEEP_ALIVE_INTERVAL as i64));
+                }
             }
         }
 
         true
-    }
-
-    pub fn check_ping_count_exhaust(&self) -> bool {
-        let ping_count = self.ping_count.load(Ordering::SeqCst);
-        if ping_count > 10 {
-            return true;
-        }
-
-        false
     }
 
     fn send_request_created_to_server(ts: &TunStub, dst: &libc::sockaddr_in) {
@@ -264,7 +283,9 @@ impl Tunnel {
         let wmsg = Message::from(&buf[..]);
 
         // send to peer, should always succeed
-        ts.tunnel_tx.unbounded_send(wmsg).unwrap();
+        if let Err(e) = ts.tunnel_tx.unbounded_send(wmsg) {
+            error!("send_request_created_to_server tx send failed:{}", e);
+        }
     }
 
     fn send_request_closed_to_server(ts: &TunStub) {
@@ -280,6 +301,8 @@ impl Tunnel {
         let wmsg = Message::from(&buf[..]);
 
         // send to peer, should always succeed
-        ts.tunnel_tx.unbounded_send(wmsg).unwrap();
+        if let Err(e) = ts.tunnel_tx.unbounded_send(wmsg) {
+            error!("send_request_closed_to_server tx send failed:{}", e);
+        }
     }
 }
