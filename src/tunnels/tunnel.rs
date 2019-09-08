@@ -102,7 +102,7 @@ impl Tunnel {
         let timestamp = bs.read_with::<u64>(offset, LE).unwrap();
 
         let in_ms = self.get_elapsed_milliseconds();
-        assert!(in_ms > timestamp, "pong timestamp > now!");
+        assert!(in_ms >= timestamp, "pong timestamp > now!");
 
         let rtt = in_ms - timestamp;
         self.rtt.store(rtt, Ordering::SeqCst);
@@ -205,7 +205,7 @@ impl Tunnel {
         }
 
         let timestamp = self.get_elapsed_milliseconds();
-        let mut bs1 = vec![0 as u8, 8];
+        let mut bs1 = vec![0 as u8; 8];
         let bs = &mut bs1[..];
         let offset = &mut 0;
         bs.write_with::<u64>(offset, timestamp, LE).unwrap();

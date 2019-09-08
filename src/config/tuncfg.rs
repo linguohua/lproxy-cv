@@ -4,11 +4,11 @@ pub struct TunCfg {
     pub url: String,
 }
 
-impl TunCfg{
-    pub fn new() ->TunCfg {
+impl TunCfg {
+    pub fn new() -> TunCfg {
         TunCfg {
-            number:1,
-            url: "wss://localhost:443/tun".to_string(),
+            number: 2,
+            url: "wss://localhost:8000/tun".to_string(),
         }
     }
 }

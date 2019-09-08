@@ -4,6 +4,7 @@ use crate::config::TunCfg;
 use crate::requests::TunStub;
 use bytes::Bytes;
 use futures::sync::mpsc::UnboundedSender;
+use log::info;
 use log::{debug, error};
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -27,11 +28,11 @@ impl TunMgr {
     pub fn init(self: Arc<TunMgr>, cfg: &TunCfg) {
         let mut vec = self.tunnels.lock().unwrap();
 
-        for _ in 1..cfg.number {
+        for _ in 0..cfg.number {
             vec.push(None);
         }
 
-        for n in 1..cfg.number {
+        for n in 0..cfg.number {
             let index = n;
             let mgr = self.clone();
             tunbuilder::connect(&cfg.url, &mgr, index);
@@ -50,6 +51,8 @@ impl TunMgr {
         }
 
         tunnels[index] = Some(tun.clone());
+
+        info!("tunnel created, index:{}", index);
     }
 
     pub fn on_tunnel_closed(&self, index: usize) {
@@ -57,6 +60,7 @@ impl TunMgr {
         match t {
             Some(t) => {
                 t.on_closed();
+                info!("tunnel closed, index:{}", index);
             }
             None => {}
         }
