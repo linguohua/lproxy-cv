@@ -6,6 +6,7 @@ use crate::tunnels::theader::THEADER_SIZE;
 use byte::*;
 use bytes::Bytes;
 use futures::sync::mpsc::UnboundedSender;
+use log::info;
 use log::{debug, error};
 use std::sync::atomic::{AtomicU16, AtomicU64, AtomicU8, Ordering};
 use std::sync::Arc;
@@ -196,7 +197,10 @@ impl Tunnel {
         let reqs = &mut self.requests.lock().unwrap();
         reqs.clear_all();
 
-        // TODO: log tunnel alive duration
+        info!(
+            "tunnel live duration {} minutes",
+            self.time.elapsed().as_secs() / 60
+        );
     }
 
     pub fn send_ping(&self) -> bool {
