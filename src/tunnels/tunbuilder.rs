@@ -13,6 +13,8 @@ pub fn connect(url: &str, mgr: &Arc<TunMgr>, index: usize) {
     let url = url::Url::parse(&url).unwrap();
 
     let mgr1 = mgr.clone();
+    let mgr2 = mgr.clone();
+
     let client = connect_async(url)
         .and_then(move |(ws_stream, _)| {
             debug!("WebSocket handshake has been successfully completed");
@@ -70,8 +72,10 @@ pub fn connect(url: &str, mgr: &Arc<TunMgr>, index: usize) {
                 })
             // ok(index)
         })
-        .map_err(|e| {
+        .map_err(move |e| {
             error!("Error during the websocket handshake occurred: {}", e);
+            mgr2.on_tunnel_build_error(index);
+
             ()
         });
 

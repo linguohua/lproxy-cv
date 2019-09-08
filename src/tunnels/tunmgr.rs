@@ -82,6 +82,14 @@ impl TunMgr {
         }
     }
 
+    pub fn on_tunnel_build_error(&self, index: usize) {
+        if let Err(e) = self.reconnect_queue.push(index as u16) {
+            panic!("on_tunnel_build_error push failed:{}", e);
+        }
+
+        info!("tunnel build error, index:{}, rebuild later", index);
+    }
+
     fn on_tunnel_closed_interal(&self, index: usize) -> TunnelItem {
         let mut tunnels = self.tunnels.lock().unwrap();
         let t = &tunnels[index];
