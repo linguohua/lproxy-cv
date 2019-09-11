@@ -62,12 +62,12 @@ impl TunMgr {
         let t = &tunnels[index];
 
         if t.is_some() {
-            panic!("there is tunnel at {} already!", index);
+            panic!("[TunMgr]there is tunnel at {} already!", index);
         }
 
         tunnels[index] = Some(tun.clone());
 
-        info!("tunnel created, index:{}", index);
+        info!("[TunMgr]tunnel created, index:{}", index);
     }
 
     pub fn on_tunnel_closed(&self, index: usize) {
@@ -77,10 +77,10 @@ impl TunMgr {
             Some(t) => {
                 t.on_closed();
                 if let Err(e) = self.reconnect_queue.push(index as u16) {
-                    panic!("reconnect_queue push failed:{}", e);
+                    panic!("[TunMgr]reconnect_queue push failed:{}", e);
                 }
 
-                info!("tunnel closed, index:{}", index);
+                info!("[TunMgr]tunnel closed, index:{}", index);
             }
             None => {}
         }
@@ -89,10 +89,10 @@ impl TunMgr {
     pub fn on_tunnel_build_error(&self, index: usize) {
         info!("[TunMgr]on_tunnel_build_error");
         if let Err(e) = self.reconnect_queue.push(index as u16) {
-            panic!("on_tunnel_build_error push failed:{}", e);
+            panic!("[TunMgr]on_tunnel_build_error push failed:{}", e);
         }
 
-        info!("tunnel build error, index:{}, rebuild later", index);
+        info!("[TunMgr]tunnel build error, index:{}, rebuild later", index);
     }
 
     fn on_tunnel_closed_interal(&self, index: usize) -> TunnelItem {
@@ -151,10 +151,20 @@ impl TunMgr {
                 Some(tun) => {
                     let rtt_tun = tun.get_rtt();
                     let req_count_tun = tun.get_req_count();
+                    let mut selected = false;
+                    info!(
+                        "[TunMgr]alloc_tunnel_for_req, idx:{}, rtt:{}, req_count:{}",
+                        tun.index, rtt_tun, req_count_tun
+                    );
+
                     if rtt_tun < rtt {
+                        selected = true;
+                    } else if rtt_tun == rtt && req_count_tun < req_count {
+                        selected = true;
+                    }
+
+                    if selected {
                         rtt = rtt_tun;
-                        tselected = Some(tun.clone());
-                    } else if req_count_tun < req_count {
                         req_count = req_count_tun;
                         tselected = Some(tun.clone());
                     }
@@ -171,14 +181,19 @@ impl TunMgr {
         // tokio timer, every 3 seconds
         let task = Interval::new(Instant::now(), Duration::from_millis(KEEP_ALIVE_INTERVAL))
             .for_each(move |instant| {
-                debug!("keepalive timer fire; instant={:?}", instant);
+                debug!("[TunMgr]keepalive timer fire; instant={:?}", instant);
                 self.send_pings();
 
                 self.clone().process_reconnect();
 
                 Ok(())
             })
-            .map_err(|e| error!("start_keepalive_timer interval errored; err={:?}", e));
+            .map_err(|e| {
+                error!(
+                    "[TunMgr]start_keepalive_timer interval errored; err={:?}",
+                    e
+                )
+            });
 
         tokio::spawn(task);
     }
@@ -200,7 +215,7 @@ impl TunMgr {
     fn process_reconnect(self: Arc<TunMgr>) {
         loop {
             if let Ok(index) = self.reconnect_queue.pop() {
-                info!("process_reconnect, index:{}", index);
+                info!("[TunMgr]process_reconnect, index:{}", index);
 
                 tunbuilder::connect(&self.url, &self, index as usize);
             } else {

@@ -7,7 +7,7 @@ use byte::*;
 use bytes::Bytes;
 use crossbeam::queue::ArrayQueue;
 use futures::sync::mpsc::UnboundedSender;
-use log::{info, error};
+use log::{error, info};
 use std::sync::atomic::{AtomicI64, AtomicU16, AtomicU8, Ordering};
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -54,7 +54,7 @@ impl Tunnel {
     }
 
     pub fn on_tunnel_msg(&self, msg: Message) -> bool {
-        info!("[Tunnel]on_tunnel_msg");
+        // info!("[Tunnel]on_tunnel_msg");
         if msg.is_pong() {
             self.on_pong(msg);
 
@@ -184,7 +184,10 @@ impl Tunnel {
 
         let req = &mut requests.elements[req_idx];
         if req.tag == req_tag && req.request_tx.is_some() {
-            info!("[Tunnel]free_request_tx, req_idx:{}, req_tag:{}", req_idx, req_tag);
+            info!(
+                "[Tunnel]free_request_tx, req_idx:{}, req_tag:{}",
+                req_idx, req_tag
+            );
             req.request_tx = None;
         }
 
@@ -311,7 +314,10 @@ impl Tunnel {
 
         // send to peer, should always succeed
         if let Err(e) = ts.tunnel_tx.unbounded_send(wmsg) {
-            error!("[Tunnel]send_request_created_to_server tx send failed:{}", e);
+            error!(
+                "[Tunnel]send_request_created_to_server tx send failed:{}",
+                e
+            );
         }
     }
 
