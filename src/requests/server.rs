@@ -1,5 +1,5 @@
 use super::ReqMgr;
-use log::{debug, error};
+use log::{error, info};
 use nix::sys::socket::getsockopt;
 use nix::sys::socket::sockopt::OriginalDst;
 use std::os::unix::io::AsRawFd;
@@ -14,28 +14,31 @@ use tokio_tcp::TcpListener;
 use tokio_tcp::TcpStream;
 
 pub struct Server {
-    port: u16,
+    listen_addr: String,
 }
 
 impl Server {
-    pub fn new(port: u16) -> Arc<Server> {
-        Arc::new(Server { port: port })
+    pub fn new(addr: &str) -> Arc<Server> {
+        info!("[server]new server, add:{}", addr);
+        Arc::new(Server {
+            listen_addr: addr.to_string(),
+        })
     }
 
     pub fn start(self: Arc<Server>, mgr: &Arc<ReqMgr>) {
         let mgr = mgr.clone();
+        info!("[server]start local server at:{}", self.listen_addr);
 
         // start tcp server listen at addr
         // Bind the server's socket.
-        let port = self.port;
-        let addr = format!("127.0.0.1:{}", port);
+        let addr = &self.listen_addr;
         let addr_inet = addr.parse().unwrap();
         let listener = TcpListener::bind(&addr_inet).expect("unable to bind TCP listener");
 
         // Pull out a stream of sockets for incoming connections
         let server = listener
             .incoming()
-            .map_err(|e| error!("accept failed = {:?}", e))
+            .map_err(|e| error!("[server] accept failed = {:?}", e))
             .for_each(move |sock| {
                 // service new socket
                 let mgr = mgr.clone();
@@ -59,7 +62,7 @@ impl Server {
         // get real dst address
         let rawfd = socket.as_raw_fd();
         let result = getsockopt(rawfd, OriginalDst).unwrap();
-        debug!("serve_sock dst:{:?}", result);
+        info!("[server]serve_sock dst:{:?}", result);
 
         // set 2 seconds write-timeout
         let mut socket = TimeoutStream::new(socket);
@@ -73,15 +76,17 @@ impl Server {
         let tunstub = mgr.on_request_created(&tx, &result);
         if tunstub.is_none() {
             // invalid tunnel
-            error!("failed to alloc tunnel for request!");
+            error!("[server]failed to alloc tunnel for request!");
             return;
         }
+
+        info!("[server]allocated tun:{:?}", tunstub);
 
         let send_fut = rx.fold(sink, |mut sink, msg| {
             let s = sink.start_send(msg);
             match s {
                 Err(e) => {
-                    error!("serve_sock, start_send error:{}", e);
+                    error!("[server]serve_sock, start_send error:{}", e);
                     Err(())
                 }
                 _ => Ok(sink),

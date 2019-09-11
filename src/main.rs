@@ -7,7 +7,7 @@ use futures::future::{loop_fn, Future, Loop};
 use std::time::{Duration, Instant};
 use tokio::timer::Delay;
 
-use log::{error, debug};
+use log::{debug, error};
 
 fn main() {
     config::log_init().unwrap();
@@ -22,7 +22,7 @@ fn main() {
                 debug!("http response:{:?}", response);
                 let cfg = config::TunCfg::new();
                 let tunmgr = tunnels::TunMgr::new(&cfg);
-                let reqmgr = requests::ReqMgr::new(&tunmgr);
+                let reqmgr = requests::ReqMgr::new(&tunmgr, &cfg);
 
                 tunmgr.init();
                 reqmgr.init();

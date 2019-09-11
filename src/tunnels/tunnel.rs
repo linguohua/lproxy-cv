@@ -7,8 +7,7 @@ use byte::*;
 use bytes::Bytes;
 use crossbeam::queue::ArrayQueue;
 use futures::sync::mpsc::UnboundedSender;
-use log::info;
-use log::{debug, error};
+use log::{info, error};
 use std::sync::atomic::{AtomicI64, AtomicU16, AtomicU8, Ordering};
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -32,6 +31,7 @@ pub struct Tunnel {
 
 impl Tunnel {
     pub fn new(tx: UnboundedSender<Message>, idx: usize) -> Tunnel {
+        info!("[Tunnel]new Tunnel, idx:{}", idx);
         let size = 5;
         let rtt_queue = ArrayQueue::new(size);
         for _ in 0..size {
@@ -54,6 +54,7 @@ impl Tunnel {
     }
 
     pub fn on_tunnel_msg(&self, msg: Message) -> bool {
+        info!("[Tunnel]on_tunnel_msg");
         if msg.is_pong() {
             self.on_pong(msg);
 
@@ -61,7 +62,7 @@ impl Tunnel {
         }
 
         if !msg.is_binary() {
-            debug!("tunnel should only handle binary msg!");
+            info!("[Tunnel]tunnel should only handle binary msg!");
             return true;
         }
 
@@ -76,7 +77,7 @@ impl Tunnel {
                 let tx = self.get_request_tx(req_idx, req_tag);
                 match tx {
                     None => {
-                        debug!("no request found for: {}:{}", req_idx, req_tag);
+                        info!("[Tunnel]no request found for: {}:{}", req_idx, req_tag);
                         return false;
                     }
                     Some(tx) => {
@@ -84,7 +85,7 @@ impl Tunnel {
                         let result = tx.unbounded_send(b);
                         match result {
                             Err(e) => {
-                                debug!("tunnel msg send to request failed:{}", e);
+                                info!("[Tunnel]tunnel msg send to request failed:{}", e);
                                 return false;
                             }
                             _ => {}
@@ -92,8 +93,14 @@ impl Tunnel {
                     }
                 }
             }
+            Cmd::ReqServerFinished => {
+                // server finished
+                let req_idx = th.req_idx;
+                let req_tag = th.req_tag;
+                self.free_request_tx(req_idx, req_tag);
+            }
             _ => {
-                error!("unsupport cmd:{:?}, discard msg", cmd);
+                error!("[Tunnel]unsupport cmd:{:?}, discard msg", cmd);
             }
         }
 
@@ -104,7 +111,7 @@ impl Tunnel {
         let bs = msg.into_data();
         let len = bs.len();
         if len != 8 {
-            error!("pong data length({}) != 8", len);
+            error!("[Tunnel]pong data length({}) != 8", len);
             return;
         }
 
@@ -115,7 +122,7 @@ impl Tunnel {
         let timestamp = bs.read_with::<u64>(offset, LE).unwrap();
 
         let in_ms = self.get_elapsed_milliseconds();
-        assert!(in_ms >= timestamp, "pong timestamp > now!");
+        assert!(in_ms >= timestamp, "[Tunnel]pong timestamp > now!");
 
         let rtt = in_ms - timestamp;
         let rtt = rtt as i64;
@@ -125,7 +132,7 @@ impl Tunnel {
     fn append_rtt(&self, rtt: i64) {
         if let Ok(rtt_remove) = self.rtt_queue.pop() {
             if let Err(e) = self.rtt_queue.push(rtt) {
-                panic!("rtt_quque push failed:{}", e);
+                panic!("[Tunnel]rtt_quque push failed:{}", e);
             }
 
             self.rtt_sum.fetch_add(rtt - rtt_remove, Ordering::SeqCst);
@@ -168,11 +175,28 @@ impl Tunnel {
         None
     }
 
+    fn free_request_tx(&self, req_idx: u16, req_tag: u16) -> Option<UnboundedSender<Bytes>> {
+        let requests = &mut self.requests.lock().unwrap();
+        let req_idx = req_idx as usize;
+        if req_idx >= requests.elements.len() {
+            return None;
+        }
+
+        let req = &mut requests.elements[req_idx];
+        if req.tag == req_tag && req.request_tx.is_some() {
+            info!("[Tunnel]free_request_tx, req_idx:{}, req_tag:{}", req_idx, req_tag);
+            req.request_tx = None;
+        }
+
+        None
+    }
+
     pub fn on_request_created(
         &self,
         req_tx: &UnboundedSender<Bytes>,
         dst: &libc::sockaddr_in,
     ) -> Option<TunStub> {
+        info!("[Tunnel]on_request_created");
         let ts = self.on_request_created_internal(req_tx);
         match ts {
             Some(ts) => {
@@ -206,6 +230,7 @@ impl Tunnel {
     }
 
     pub fn on_request_closed(&self, tunstub: &Arc<TunStub>) {
+        info!("[Tunnel]on_request_closed, tun index:{}", self.index);
         let reqs = &mut self.requests.lock().unwrap();
         let r = reqs.free(tunstub.req_idx, tunstub.req_tag);
 
@@ -222,7 +247,7 @@ impl Tunnel {
         reqs.clear_all();
 
         info!(
-            "tunnel live duration {} minutes",
+            "[Tunnel]tunnel live duration {} minutes",
             self.time.elapsed().as_secs() / 60
         );
     }
@@ -243,7 +268,7 @@ impl Tunnel {
         let r = self.tx.unbounded_send(msg);
         match r {
             Err(e) => {
-                error!("tunnel send_ping error:{}", e);
+                error!("[Tunnel]tunnel send_ping error:{}", e);
             }
             _ => {
                 self.ping_count.fetch_add(1, Ordering::SeqCst);
@@ -258,6 +283,8 @@ impl Tunnel {
     }
 
     fn send_request_created_to_server(ts: &TunStub, dst: &libc::sockaddr_in) {
+        info!("[Tunnel]send_request_created_to_server, dst:{:?}", dst);
+
         // send request to server
         let size = 1 + 4 + 2; // family + ipv4 + port;
         let hsize = THEADER_SIZE;
@@ -284,11 +311,13 @@ impl Tunnel {
 
         // send to peer, should always succeed
         if let Err(e) = ts.tunnel_tx.unbounded_send(wmsg) {
-            error!("send_request_created_to_server tx send failed:{}", e);
+            error!("[Tunnel]send_request_created_to_server tx send failed:{}", e);
         }
     }
 
     fn send_request_closed_to_server(ts: &TunStub) {
+        info!("[Tunnel]send_request_closed_to_server, dst:{:?}", ts);
+
         // send request to server
         let hsize = THEADER_SIZE;
         let buf = &mut vec![0; hsize];
@@ -302,7 +331,7 @@ impl Tunnel {
 
         // send to peer, should always succeed
         if let Err(e) = ts.tunnel_tx.unbounded_send(wmsg) {
-            error!("send_request_closed_to_server tx send failed:{}", e);
+            error!("[Tunnel]send_request_closed_to_server tx send failed:{}", e);
         }
     }
 }

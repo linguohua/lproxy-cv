@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 use tokio::prelude::*;
 use tokio::timer::Interval;
 
-pub const KEEP_ALIVE_INTERVAL: u64 = 3000;
+pub const KEEP_ALIVE_INTERVAL: u64 = 5000;
 
 type TunnelItem = Option<Arc<Tunnel>>;
 
@@ -26,17 +26,18 @@ pub struct TunMgr {
 
 impl TunMgr {
     pub fn new(cfg: &TunCfg) -> Arc<TunMgr> {
-        let capacity = cfg.number;
+        info!("[TunMgr]new TunMgr, cfg:{:?}", cfg);
+        let capacity = cfg.tunnel_number;
 
         let mut vec = Vec::with_capacity(capacity);
-        for _ in 0..cfg.number {
+        for _ in 0..capacity {
             vec.push(None);
         }
 
         let m = Mutex::new(vec);
 
         Arc::new(TunMgr {
-            url: cfg.url.to_string(),
+            url: cfg.websocket_url.to_string(),
             capacity: capacity,
             tunnels: m,
             reconnect_queue: ArrayQueue::new(capacity),
@@ -44,6 +45,7 @@ impl TunMgr {
     }
 
     pub fn init(self: Arc<TunMgr>) {
+        info!("[TunMgr]init");
         for n in 0..self.capacity {
             let index = n;
             let mgr = self.clone();
@@ -54,6 +56,7 @@ impl TunMgr {
     }
 
     pub fn on_tunnel_created(&self, tun: &Arc<Tunnel>) {
+        info!("[TunMgr]on_tunnel_created");
         let index = tun.index;
         let mut tunnels = self.tunnels.lock().unwrap();
         let t = &tunnels[index];
@@ -68,6 +71,7 @@ impl TunMgr {
     }
 
     pub fn on_tunnel_closed(&self, index: usize) {
+        info!("[TunMgr]on_tunnel_closed");
         let t = self.on_tunnel_closed_interal(index);
         match t {
             Some(t) => {
@@ -83,6 +87,7 @@ impl TunMgr {
     }
 
     pub fn on_tunnel_build_error(&self, index: usize) {
+        info!("[TunMgr]on_tunnel_build_error");
         if let Err(e) = self.reconnect_queue.push(index as u16) {
             panic!("on_tunnel_build_error push failed:{}", e);
         }
@@ -91,6 +96,7 @@ impl TunMgr {
     }
 
     fn on_tunnel_closed_interal(&self, index: usize) -> TunnelItem {
+        info!("[TunMgr]on_tunnel_closed_interal");
         let mut tunnels = self.tunnels.lock().unwrap();
         let t = &tunnels[index];
 
@@ -106,6 +112,7 @@ impl TunMgr {
     }
 
     fn get_tunnel(&self, index: usize) -> TunnelItem {
+        info!("[TunMgr]get_tunnel");
         let tunnels = self.tunnels.lock().unwrap();
         let tun = &tunnels[index];
 
@@ -120,17 +127,20 @@ impl TunMgr {
         req_tx: &UnboundedSender<Bytes>,
         dst: &libc::sockaddr_in,
     ) -> Option<TunStub> {
+        info!("[TunMgr]on_request_created");
         let tun = self.alloc_tunnel_for_req().unwrap();
         tun.on_request_created(req_tx, dst)
     }
 
     pub fn on_request_closed(&self, tunstub: &Arc<TunStub>) {
+        info!("[TunMgr]on_request_closed:{:?}", tunstub);
         let tidx = tunstub.tun_idx;
         let tun = self.get_tunnel(tidx as usize).unwrap();
         tun.on_request_closed(tunstub);
     }
 
     fn alloc_tunnel_for_req(&self) -> TunnelItem {
+        info!("[TunMgr]alloc_tunnel_for_req");
         let tunnels = self.tunnels.lock().unwrap();
         let mut tselected = None;
         let mut rtt = std::i64::MAX;
@@ -157,6 +167,7 @@ impl TunMgr {
     }
 
     fn start_keepalive_timer(self: Arc<TunMgr>) {
+        info!("[TunMgr]start_keepalive_timer");
         // tokio timer, every 3 seconds
         let task = Interval::new(Instant::now(), Duration::from_millis(KEEP_ALIVE_INTERVAL))
             .for_each(move |instant| {

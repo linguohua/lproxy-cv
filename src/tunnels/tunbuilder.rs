@@ -17,13 +17,13 @@ pub fn connect(url: &str, mgr: &Arc<TunMgr>, index: usize) {
 
     let client = connect_async(url)
         .and_then(move |(ws_stream, _)| {
-            debug!("WebSocket handshake has been successfully completed");
+            debug!("[tunbuilder]WebSocket handshake has been successfully completed");
             // let inner = ws_stream.get_inner().get_ref();
 
             let addr = ws_stream
                 .peer_addr()
-                .expect("connected streams should have a peer address");
-            debug!("Peer address: {}", addr);
+                .expect("[tunbuilder]connected streams should have a peer address");
+            debug!("[tunbuilder]Peer address: {}", addr);
 
             // Create a channel for our stream, which other sockets will use to
             // send us messages. Then register our address with the stream to send
@@ -38,7 +38,7 @@ pub fn connect(url: &str, mgr: &Arc<TunMgr>, index: usize) {
             let (sink, stream) = ws_stream.split();
 
             let receive_fut = stream.for_each(move |message| {
-                debug!("tunnel read a message");
+                debug!("[tunbuilder]tunnel read a message");
                 // post to manager
                 if t.on_tunnel_msg(message) {
                     Ok(())
@@ -50,7 +50,7 @@ pub fn connect(url: &str, mgr: &Arc<TunMgr>, index: usize) {
             // Whenever we receive a string on the Receiver, we write it to
             // `WriteHalf<WebSocketStream>`.
             let send_fut = rx.fold(sink, |mut sink, msg| {
-                debug!("tunnel try to send msg");
+                debug!("[tunbuilder]tunnel try to send msg");
                 let s = sink.start_send(msg);
                 match s {
                     Err(e) => {
@@ -73,7 +73,10 @@ pub fn connect(url: &str, mgr: &Arc<TunMgr>, index: usize) {
             // ok(index)
         })
         .map_err(move |e| {
-            error!("Error during the websocket handshake occurred: {}", e);
+            error!(
+                "[tunbuilder]Error during the websocket handshake occurred: {}",
+                e
+            );
             mgr2.on_tunnel_build_error(index);
 
             ()
