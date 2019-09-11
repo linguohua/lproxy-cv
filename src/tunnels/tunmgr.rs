@@ -10,9 +10,9 @@ use log::{debug, error};
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
+use stream_cancel::Trigger;
 use tokio::prelude::*;
 use tokio::timer::Interval;
-
 pub const KEEP_ALIVE_INTERVAL: u64 = 5000;
 
 type TunnelItem = Option<Arc<Tunnel>>;
@@ -125,18 +125,23 @@ impl TunMgr {
     pub fn on_request_created(
         &self,
         req_tx: &UnboundedSender<Bytes>,
+        trigger: Trigger,
         dst: &libc::sockaddr_in,
     ) -> Option<TunStub> {
         info!("[TunMgr]on_request_created");
         let tun = self.alloc_tunnel_for_req().unwrap();
-        tun.on_request_created(req_tx, dst)
+        tun.on_request_created(req_tx, trigger, dst)
     }
 
     pub fn on_request_closed(&self, tunstub: &Arc<TunStub>) {
         info!("[TunMgr]on_request_closed:{:?}", tunstub);
         let tidx = tunstub.tun_idx;
-        let tun = self.get_tunnel(tidx as usize).unwrap();
-        tun.on_request_closed(tunstub);
+        match self.get_tunnel(tidx as usize) {
+            Some(tun) => tun.on_request_closed(tunstub),
+            None => {
+                error!("[TunMgr]on_request_closed:{:?}, not found", tunstub);
+            }
+        }
     }
 
     fn alloc_tunnel_for_req(&self) -> TunnelItem {

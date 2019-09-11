@@ -2,6 +2,7 @@ use super::Request;
 use bytes::Bytes;
 use futures::sync::mpsc::UnboundedSender;
 use log::error;
+use stream_cancel::Trigger;
 
 pub struct Reqq {
     pub elements: Vec<Request>,
@@ -23,7 +24,7 @@ impl Reqq {
         }
     }
 
-    pub fn alloc(&mut self, req_tx: &UnboundedSender<Bytes>) -> (u16, u16) {
+    pub fn alloc(&mut self, req_tx: &UnboundedSender<Bytes>, trigger: Trigger) -> (u16, u16) {
         let free = &mut self.free;
         let elements = &mut self.elements;
 
@@ -37,6 +38,7 @@ impl Reqq {
         let req = &mut elements[idx];
         req.tag = req.tag + 1;
         req.request_tx = Some(req_tx.clone());
+        req.trigger = Some(trigger);
 
         (idx as u16, req.tag)
     }
@@ -55,6 +57,7 @@ impl Reqq {
 
         req.tag = req.tag + 1;
         req.request_tx = None;
+        req.trigger = None;
 
         let free = &mut self.free;
         free.push(idx as usize);
@@ -66,6 +69,8 @@ impl Reqq {
         let elements = &mut self.elements;
         for e in elements.iter_mut() {
             e.request_tx = None;
+            e.trigger = None;
+
             e.tag += 1;
         }
 

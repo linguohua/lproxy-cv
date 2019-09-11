@@ -9,6 +9,7 @@ use bytes::BytesMut;
 use futures::sync::mpsc::UnboundedSender;
 use log::{error, info};
 use std::sync::Arc;
+use stream_cancel::Trigger;
 use tungstenite::protocol::Message;
 
 pub struct ReqMgr {
@@ -96,10 +97,11 @@ impl ReqMgr {
     pub fn on_request_created(
         &self,
         req_tx: &UnboundedSender<Bytes>,
+        trigger: Trigger,
         dst: &libc::sockaddr_in,
     ) -> Option<TunStub> {
         info!("[ReqMgr]on_request_created, dst:{:?}", dst);
         let tm = &self.tm;
-        tm.on_request_created(req_tx, dst)
+        tm.on_request_created(req_tx, trigger, dst)
     }
 }

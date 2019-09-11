@@ -12,6 +12,7 @@ use std::sync::atomic::{AtomicI64, AtomicU16, AtomicU8, Ordering};
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::Instant;
+use stream_cancel::Trigger;
 use tungstenite::protocol::Message;
 
 pub struct Tunnel {
@@ -197,10 +198,11 @@ impl Tunnel {
     pub fn on_request_created(
         &self,
         req_tx: &UnboundedSender<Bytes>,
+        trigger: Trigger,
         dst: &libc::sockaddr_in,
     ) -> Option<TunStub> {
         info!("[Tunnel]on_request_created");
-        let ts = self.on_request_created_internal(req_tx);
+        let ts = self.on_request_created_internal(req_tx, trigger);
         match ts {
             Some(ts) => {
                 Tunnel::send_request_created_to_server(&ts, dst);
@@ -211,9 +213,13 @@ impl Tunnel {
         }
     }
 
-    fn on_request_created_internal(&self, req_tx: &UnboundedSender<Bytes>) -> Option<TunStub> {
+    fn on_request_created_internal(
+        &self,
+        req_tx: &UnboundedSender<Bytes>,
+        trigger: Trigger,
+    ) -> Option<TunStub> {
         let reqs = &mut self.requests.lock().unwrap();
-        let (idx, tag) = reqs.alloc(req_tx);
+        let (idx, tag) = reqs.alloc(req_tx, trigger);
         let tun_idx;
         if idx != std::u16::MAX {
             tun_idx = self.index as u16;

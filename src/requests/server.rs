@@ -12,6 +12,7 @@ use tokio_codec::BytesCodec;
 use tokio_io_timeout::TimeoutStream;
 use tokio_tcp::TcpListener;
 use tokio_tcp::TcpStream;
+use stream_cancel::{StreamExt, Tripwire};
 
 pub struct Server {
     listen_addr: String,
@@ -71,9 +72,9 @@ impl Server {
 
         let framed = BytesCodec::new().framed(socket);
         let (sink, stream) = framed.split();
-
+        let (trigger, tripwire) = Tripwire::new();
         let (tx, rx) = futures::sync::mpsc::unbounded();
-        let tunstub = mgr.on_request_created(&tx, &result);
+        let tunstub = mgr.on_request_created(&tx, trigger, &result);
         if tunstub.is_none() {
             // invalid tunnel
             error!("[server]failed to alloc tunnel for request!");
@@ -81,6 +82,8 @@ impl Server {
         }
 
         info!("[server]allocated tun:{:?}", tunstub);
+        let tunstub = Arc::new(tunstub.unwrap());
+        let req_idx = tunstub.req_idx;
 
         let send_fut = rx.fold(sink, |mut sink, msg| {
             let s = sink.start_send(msg);
@@ -91,9 +94,11 @@ impl Server {
                 }
                 _ => Ok(sink),
             }
+        }).and_then(move|_| {
+            info!("[server]request send_fut end, index:{}", req_idx);
+            Ok(())
         });
 
-        let tunstub = Arc::new(tunstub.unwrap());
         let north1 = tunstub.clone();
 
         // when peer send finished(FIN), then for-each(recv) future end
@@ -101,7 +106,7 @@ impl Server {
         // no more data, rx's pair tx will be drop, then mpsc end, rx
         // future will end, thus both futures are ended;
         // when peer total closed(RST), then both futures will end
-        let receive_fut = stream.for_each(move |message| {
+        let receive_fut = stream.take_until(tripwire).for_each(move |message| {
             // post to manager
             if ReqMgr::on_request_msg(message, &tunstub) {
                 Ok(())
