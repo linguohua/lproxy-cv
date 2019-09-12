@@ -55,9 +55,7 @@ impl Reqq {
             return false;
         }
 
-        req.tag = req.tag + 1;
-        req.request_tx = None;
-        req.trigger = None;
+        Reqq::clean_req(req);
 
         let free = &mut self.free;
         free.push(idx as usize);
@@ -68,13 +66,16 @@ impl Reqq {
     pub fn clear_all(&mut self) {
         let elements = &mut self.elements;
         for e in elements.iter_mut() {
-            e.request_tx = None;
-            e.trigger = None;
-
-            e.tag += 1;
+            Reqq::clean_req(e);
         }
 
         // not alloc-able
         self.free.clear();
+    }
+
+    fn clean_req(req: &mut Request) {
+        req.tag = req.tag + 1;
+        req.request_tx = None;
+        req.trigger = None;
     }
 }

@@ -1,6 +1,7 @@
 use super::TunMgr;
 use super::Tunnel;
-use futures::{Future, Sink, Stream};
+use futures::{Future, Stream};
+use futures::sink::Sink;
 use std::sync::Arc;
 use tokio;
 use tokio_tungstenite::connect_async;
@@ -47,23 +48,17 @@ pub fn connect(url: &str, mgr: &Arc<TunMgr>, index: usize) {
                 }
             });
 
-            // Whenever we receive a string on the Receiver, we write it to
-            // `WriteHalf<WebSocketStream>`.
-            let send_fut = rx.fold(sink, |mut sink, msg| {
-                debug!("[tunbuilder]tunnel try to send msg");
-                let s = sink.start_send(msg);
-                match s {
-                    Err(e) => {
-                        error!("serve_sock, start_send error:{}", e);
-                        Err(())
-                    }
-                    _ => Ok(sink),
-                }
+            let rx = rx.map_err(|_| {
+                tungstenite::error::Error::Io(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    "[tunbuilder] rx-shit",
+                ))
             });
+
+            let send_fut = sink.send_all(rx);
 
             // Wait for either of futures to complete.
             receive_fut
-                .map(|_| ())
                 .map_err(|_| ())
                 .select(send_fut.map(|_| ()).map_err(|_| ()))
                 .then(move |_| {

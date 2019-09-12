@@ -82,7 +82,7 @@ impl Tunnel {
                         return false;
                     }
                     Some(tx) => {
-                        let b = Bytes::from(&bs[4..]);
+                        let b = Bytes::from(&bs[THEADER_SIZE..]);
                         let result = tx.unbounded_send(b);
                         match result {
                             Err(e) => {
@@ -99,6 +99,17 @@ impl Tunnel {
                 let req_idx = th.req_idx;
                 let req_tag = th.req_tag;
                 self.free_request_tx(req_idx, req_tag);
+            }
+            Cmd::ReqServerClosed => {
+                // server finished
+                let req_idx = th.req_idx;
+                let req_tag = th.req_tag;
+                // TODO: extract new method
+                let reqs = &mut self.requests.lock().unwrap();
+                let r = reqs.free(req_idx, req_tag);
+                if r {
+                    self.req_count.fetch_sub(1, Ordering::SeqCst);
+                }
             }
             _ => {
                 error!("[Tunnel]unsupport cmd:{:?}, discard msg", cmd);
@@ -176,11 +187,11 @@ impl Tunnel {
         None
     }
 
-    fn free_request_tx(&self, req_idx: u16, req_tag: u16) -> Option<UnboundedSender<Bytes>> {
+    fn free_request_tx(&self, req_idx: u16, req_tag: u16) {
         let requests = &mut self.requests.lock().unwrap();
         let req_idx = req_idx as usize;
         if req_idx >= requests.elements.len() {
-            return None;
+            return;
         }
 
         let req = &mut requests.elements[req_idx];
@@ -191,8 +202,6 @@ impl Tunnel {
             );
             req.request_tx = None;
         }
-
-        None
     }
 
     pub fn on_request_created(
@@ -244,8 +253,11 @@ impl Tunnel {
         let r = reqs.free(tunstub.req_idx, tunstub.req_tag);
 
         if r {
+            info!(
+                "[Tunnel]on_request_closed, tun index:{}, sub req_count by 1",
+                self.index
+            );
             self.req_count.fetch_sub(1, Ordering::SeqCst);
-
             Tunnel::send_request_closed_to_server(tunstub);
         }
     }

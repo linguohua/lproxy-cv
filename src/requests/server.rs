@@ -2,9 +2,11 @@ use super::ReqMgr;
 use log::{error, info};
 use nix::sys::socket::getsockopt;
 use nix::sys::socket::sockopt::OriginalDst;
+use std::io::{Error, ErrorKind};
 use std::os::unix::io::AsRawFd;
 use std::sync::Arc;
 use std::time::Duration;
+use stream_cancel::{StreamExt, Tripwire};
 use tokio;
 use tokio::codec::Decoder;
 use tokio::prelude::*;
@@ -12,7 +14,6 @@ use tokio_codec::BytesCodec;
 use tokio_io_timeout::TimeoutStream;
 use tokio_tcp::TcpListener;
 use tokio_tcp::TcpStream;
-use stream_cancel::{StreamExt, Tripwire};
 
 pub struct Server {
     listen_addr: String,
@@ -43,7 +44,6 @@ impl Server {
             .for_each(move |sock| {
                 // service new socket
                 let mgr = mgr.clone();
-
                 Server::serve_sock(sock, mgr);
 
                 Ok(())
@@ -74,6 +74,7 @@ impl Server {
         let (sink, stream) = framed.split();
         let (trigger, tripwire) = Tripwire::new();
         let (tx, rx) = futures::sync::mpsc::unbounded();
+
         let tunstub = mgr.on_request_created(&tx, trigger, &result);
         if tunstub.is_none() {
             // invalid tunnel
@@ -85,17 +86,15 @@ impl Server {
         let tunstub = Arc::new(tunstub.unwrap());
         let req_idx = tunstub.req_idx;
 
-        let send_fut = rx.fold(sink, |mut sink, msg| {
-            let s = sink.start_send(msg);
-            match s {
-                Err(e) => {
-                    error!("[server]serve_sock, start_send error:{}", e);
-                    Err(())
-                }
-                _ => Ok(sink),
-            }
-        }).and_then(move|_| {
-            info!("[server]request send_fut end, index:{}", req_idx);
+        let send_fut = sink.send_all(rx.map_err(|e| {
+            error!("[server]sink send_all failed:{:?}", e);
+            Error::new(ErrorKind::Other, "")
+        }));
+
+        let send_fut = send_fut.and_then(move |mut _s| {
+            info!("[server]send_fut end, index:{}", req_idx);
+            // s.close();
+
             Ok(())
         });
 
