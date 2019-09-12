@@ -1,9 +1,8 @@
 use super::Request;
 
-
 use log::error;
 
-use log::{info};
+use log::info;
 
 pub struct Reqq {
     pub elements: Vec<Request>,
@@ -15,7 +14,7 @@ impl Reqq {
         let mut elements = Vec::with_capacity(size);
         let mut free = Vec::with_capacity(size);
         for n in 0..size {
-            elements.push(Request::new());
+            elements.push(Request::new(n as u16));
             free.push(size - 1 - n);
         }
 
@@ -25,7 +24,7 @@ impl Reqq {
         }
     }
 
-    pub fn alloc(&mut self, req2:Request) -> (u16, u16) {
+    pub fn alloc(&mut self, req2: Request) -> (u16, u16) {
         let free = &mut self.free;
         let elements = &mut self.elements;
 
@@ -75,7 +74,7 @@ impl Reqq {
     }
 
     fn clean_req(req: &mut Request) {
-        info!("[reqq]clean_req, tag:{}", req.tag);
+        info!("[Reqq]clean_req:{:?}", req.tag);
 
         req.tag = req.tag + 1;
         req.request_tx = None;

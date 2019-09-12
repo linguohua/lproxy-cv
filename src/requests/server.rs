@@ -22,7 +22,7 @@ pub struct Server {
 
 impl Server {
     pub fn new(addr: &str) -> Arc<Server> {
-        info!("[server]new server, add:{}", addr);
+        info!("[Server]new server, add:{}", addr);
         Arc::new(Server {
             listen_addr: addr.to_string(),
         })
@@ -30,7 +30,7 @@ impl Server {
 
     pub fn start(self: Arc<Server>, mgr: &Arc<ReqMgr>) {
         let mgr = mgr.clone();
-        info!("[server]start local server at:{}", self.listen_addr);
+        info!("[Server]start local server at:{}", self.listen_addr);
 
         // start tcp server listen at addr
         // Bind the server's socket.
@@ -41,7 +41,7 @@ impl Server {
         // Pull out a stream of sockets for incoming connections
         let server = listener
             .incoming()
-            .map_err(|e| error!("[server] accept failed = {:?}", e))
+            .map_err(|e| error!("[Server] accept failed = {:?}", e))
             .for_each(move |sock| {
                 // service new socket
                 let mgr = mgr.clone();
@@ -64,7 +64,7 @@ impl Server {
         // get real dst address
         let rawfd = socket.as_raw_fd();
         let result = getsockopt(rawfd, OriginalDst).unwrap();
-        info!("[server]serve_sock dst:{:?}", result);
+        info!("[Server]serve_sock dst:{:?}", result);
 
         // set 2 seconds write-timeout
         let mut socket = TimeoutStream::new(socket);
@@ -80,24 +80,24 @@ impl Server {
         let tunstub = mgr.on_request_created(req, &result);
         if tunstub.is_none() {
             // invalid tunnel
-            error!("[server]failed to alloc tunnel for request!");
+            error!("[Server]failed to alloc tunnel for request!");
             return;
         }
 
-        info!("[server]allocated tun:{:?}", tunstub);
+        info!("[Server]allocated tun:{:?}", tunstub);
         let tunstub = Arc::new(tunstub.unwrap());
         let req_idx = tunstub.req_idx;
 
         let send_fut = sink.send_all(rx.map_err(|e| {
-            error!("[server]sink send_all failed:{:?}", e);
+            error!("[Server]sink send_all failed:{:?}", e);
             Error::new(ErrorKind::Other, "")
         }));
 
         let send_fut = send_fut.and_then(move |mut _s| {
-            info!("[server]send_fut end, index:{}", req_idx);
+            info!("[Server]send_fut end, index:{}", req_idx);
             // s.close();
             if let Err(e) = shutdown(rawfd, Shutdown::Read) {
-                error!("[server]shutdown rawfd error:{}", e);
+                error!("[Server]shutdown rawfd error:{}", e);
             }
 
             Ok(())

@@ -1,7 +1,7 @@
 use super::Cmd;
 use super::THeader;
 use crate::requests::Reqq;
-use crate::requests::{TunStub,Request};
+use crate::requests::{Request, TunStub};
 use crate::tunnels::theader::THEADER_SIZE;
 use byte::*;
 use bytes::Bytes;
@@ -204,11 +204,7 @@ impl Tunnel {
         }
     }
 
-    pub fn on_request_created(
-        &self,
-        req: Request,
-        dst: &libc::sockaddr_in,
-    ) -> Option<TunStub> {
+    pub fn on_request_created(&self, req: Request, dst: &libc::sockaddr_in) -> Option<TunStub> {
         info!("[Tunnel]on_request_created");
         let ts = self.on_request_created_internal(req);
         match ts {
@@ -221,10 +217,7 @@ impl Tunnel {
         }
     }
 
-    fn on_request_created_internal(
-        &self,
-        req:Request
-    ) -> Option<TunStub> {
+    fn on_request_created_internal(&self, req: Request) -> Option<TunStub> {
         let reqs = &mut self.requests.lock().unwrap();
         let (idx, tag) = reqs.alloc(req);
         let tun_idx;
@@ -338,7 +331,7 @@ impl Tunnel {
     }
 
     fn send_request_closed_to_server(ts: &TunStub) {
-        info!("[Tunnel]send_request_closed_to_server, dst:{:?}", ts);
+        info!("[Tunnel]send_request_closed_to_server, {:?}", ts);
 
         // send request to server
         let hsize = THEADER_SIZE;
