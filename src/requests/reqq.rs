@@ -1,8 +1,8 @@
 use super::Request;
-use bytes::Bytes;
-use futures::sync::mpsc::UnboundedSender;
+
+
 use log::error;
-use stream_cancel::Trigger;
+
 use log::{info};
 
 pub struct Reqq {
@@ -25,7 +25,7 @@ impl Reqq {
         }
     }
 
-    pub fn alloc(&mut self, req_tx: &UnboundedSender<Bytes>, trigger: Trigger) -> (u16, u16) {
+    pub fn alloc(&mut self, req2:Request) -> (u16, u16) {
         let free = &mut self.free;
         let elements = &mut self.elements;
 
@@ -38,8 +38,8 @@ impl Reqq {
         let idx = free.pop().unwrap();
         let req = &mut elements[idx];
         req.tag = req.tag + 1;
-        req.request_tx = Some(req_tx.clone());
-        req.trigger = Some(trigger);
+        req.request_tx = req2.request_tx;
+        req.trigger = req2.trigger;
 
         (idx as u16, req.tag)
     }

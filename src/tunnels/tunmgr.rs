@@ -1,16 +1,16 @@
 use super::tunbuilder;
 use super::Tunnel;
 use crate::config::TunCfg;
-use crate::requests::TunStub;
-use bytes::Bytes;
+use crate::requests::{TunStub, Request};
+
 use crossbeam::queue::ArrayQueue;
-use futures::sync::mpsc::UnboundedSender;
+
 use log::info;
 use log::{debug, error};
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
-use stream_cancel::Trigger;
+
 use tokio::prelude::*;
 use tokio::timer::Interval;
 pub const KEEP_ALIVE_INTERVAL: u64 = 5000;
@@ -124,13 +124,12 @@ impl TunMgr {
 
     pub fn on_request_created(
         &self,
-        req_tx: &UnboundedSender<Bytes>,
-        trigger: Trigger,
+        req: Request,
         dst: &libc::sockaddr_in,
     ) -> Option<TunStub> {
         info!("[TunMgr]on_request_created");
         if let Some(tun) = self.alloc_tunnel_for_req() {
-            tun.on_request_created(req_tx, trigger, dst)
+            tun.on_request_created(req, dst)
         } else {
             None
         }

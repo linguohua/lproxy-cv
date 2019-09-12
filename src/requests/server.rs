@@ -1,4 +1,4 @@
-use super::ReqMgr;
+use super::{ReqMgr, Request};
 use log::{error, info};
 use nix::sys::socket::getsockopt;
 use nix::sys::socket::sockopt::OriginalDst;
@@ -76,7 +76,8 @@ impl Server {
         let (trigger, tripwire) = Tripwire::new();
         let (tx, rx) = futures::sync::mpsc::unbounded();
 
-        let tunstub = mgr.on_request_created(&tx, trigger, &result);
+        let req = Request::with(tx, trigger);
+        let tunstub = mgr.on_request_created(req, &result);
         if tunstub.is_none() {
             // invalid tunnel
             error!("[server]failed to alloc tunnel for request!");
