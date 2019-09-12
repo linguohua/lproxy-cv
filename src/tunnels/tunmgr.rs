@@ -129,8 +129,11 @@ impl TunMgr {
         dst: &libc::sockaddr_in,
     ) -> Option<TunStub> {
         info!("[TunMgr]on_request_created");
-        let tun = self.alloc_tunnel_for_req().unwrap();
-        tun.on_request_created(req_tx, trigger, dst)
+        if let Some(tun) = self.alloc_tunnel_for_req() {
+            tun.on_request_created(req_tx, trigger, dst)
+        } else {
+            None
+        }
     }
 
     pub fn on_request_closed(&self, tunstub: &Arc<TunStub>) {

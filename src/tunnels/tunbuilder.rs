@@ -1,7 +1,6 @@
 use super::TunMgr;
 use super::Tunnel;
 use futures::{Future, Stream};
-use futures::sink::Sink;
 use std::sync::Arc;
 use tokio;
 use tokio_tungstenite::connect_async;
@@ -55,7 +54,7 @@ pub fn connect(url: &str, mgr: &Arc<TunMgr>, index: usize) {
                 ))
             });
 
-            let send_fut = sink.send_all(rx);
+            let send_fut = rx.forward(sink);
 
             // Wait for either of futures to complete.
             receive_fut

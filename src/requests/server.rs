@@ -2,6 +2,7 @@ use super::ReqMgr;
 use log::{error, info};
 use nix::sys::socket::getsockopt;
 use nix::sys::socket::sockopt::OriginalDst;
+use nix::sys::socket::{shutdown, Shutdown};
 use std::io::{Error, ErrorKind};
 use std::os::unix::io::AsRawFd;
 use std::sync::Arc;
@@ -94,6 +95,9 @@ impl Server {
         let send_fut = send_fut.and_then(move |mut _s| {
             info!("[server]send_fut end, index:{}", req_idx);
             // s.close();
+            if let Err(e) = shutdown(rawfd, Shutdown::Read) {
+                error!("[server]shutdown rawfd error:{}", e);
+            }
 
             Ok(())
         });

@@ -3,6 +3,7 @@ use bytes::Bytes;
 use futures::sync::mpsc::UnboundedSender;
 use log::error;
 use stream_cancel::Trigger;
+use log::{info};
 
 pub struct Reqq {
     pub elements: Vec<Request>,
@@ -74,6 +75,8 @@ impl Reqq {
     }
 
     fn clean_req(req: &mut Request) {
+        info!("[reqq]clean_req, tag:{}", req.tag);
+
         req.tag = req.tag + 1;
         req.request_tx = None;
         req.trigger = None;
