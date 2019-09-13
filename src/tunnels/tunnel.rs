@@ -204,12 +204,15 @@ impl Tunnel {
         }
     }
 
-    pub fn on_request_created(&self, req: Request, dst: &libc::sockaddr_in) -> Option<TunStub> {
+    pub fn on_request_created(&self, req: Request) -> Option<TunStub> {
         info!("[Tunnel]on_request_created");
+        let ip = req.ipv4_le;
+        let port = req.port_le;
+
         let ts = self.on_request_created_internal(req);
         match ts {
             Some(ts) => {
-                Tunnel::send_request_created_to_server(&ts, dst);
+                Tunnel::send_request_created_to_server(&ts, ip, port);
 
                 Some(ts)
             }
@@ -294,11 +297,14 @@ impl Tunnel {
         true
     }
 
-    fn send_request_created_to_server(ts: &TunStub, dst: &libc::sockaddr_in) {
-        info!("[Tunnel]send_request_created_to_server, dst:{:?}", dst);
+    fn send_request_created_to_server(ts: &TunStub, ip: u32, port: u16) {
+        info!(
+            "[Tunnel]send_request_created_to_server, target:{}:{}",
+            ip, port
+        );
 
         // send request to server
-        let size = 1 + 4 + 2; // family + ipv4 + port;
+        let size = 4 + 2; // ipv4 + port;
         let hsize = THEADER_SIZE;
         let buf = &mut vec![0; hsize + size];
 
@@ -308,15 +314,8 @@ impl Tunnel {
         let msg_body = &mut buf[hsize..];
 
         let offset = &mut 0;
-        msg_body
-            .write_with::<u8>(offset, dst.sin_family as u8, LE)
-            .unwrap();
-        msg_body
-            .write_with::<u32>(offset, dst.sin_addr.s_addr as u32, LE)
-            .unwrap();
-        msg_body
-            .write_with::<u16>(offset, dst.sin_port as u16, LE)
-            .unwrap();
+        msg_body.write_with::<u32>(offset, ip, LE).unwrap();
+        msg_body.write_with::<u16>(offset, port, LE).unwrap();
 
         // websocket message
         let wmsg = Message::from(&buf[..]);

@@ -39,6 +39,8 @@ impl Reqq {
         req.tag = req.tag + 1;
         req.request_tx = req2.request_tx;
         req.trigger = req2.trigger;
+        req.ipv4_le = req2.ipv4_le;
+        req.port_le = req2.port_le;
 
         (idx as u16, req.tag)
     }

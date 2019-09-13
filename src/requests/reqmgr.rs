@@ -97,10 +97,9 @@ impl ReqMgr {
     pub fn on_request_created(
         &self,
         req: super::Request,
-        dst: &libc::sockaddr_in,
     ) -> Option<TunStub> {
-        info!("[ReqMgr]on_request_created, dst:{:?}", dst);
+        info!("[ReqMgr]on_request_created, req:{:?}", req);
         let tm = &self.tm;
-        tm.on_request_created(req, dst)
+        tm.on_request_created(req)
     }
 }

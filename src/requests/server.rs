@@ -64,7 +64,11 @@ impl Server {
         // get real dst address
         let rawfd = socket.as_raw_fd();
         let result = getsockopt(rawfd, OriginalDst).unwrap();
-        info!("[Server]serve_sock dst:{:?}", result);
+
+        let ip_le = result.sin_addr.s_addr;
+        let port_le = result.sin_port.to_be();
+        let ipaddr = std::net::Ipv4Addr::from(ip_le.to_be());
+        info!("[Server]serve_sock, ip:{}, port:{}", ipaddr, port_le);
 
         // set 2 seconds write-timeout
         let mut socket = TimeoutStream::new(socket);
@@ -76,8 +80,9 @@ impl Server {
         let (trigger, tripwire) = Tripwire::new();
         let (tx, rx) = futures::sync::mpsc::unbounded();
 
-        let req = Request::with(tx, trigger);
-        let tunstub = mgr.on_request_created(req, &result);
+        let req = Request::with(tx, trigger, ip_le, port_le);
+        let tunstub = mgr.on_request_created(req);
+
         if tunstub.is_none() {
             // invalid tunnel
             error!("[Server]failed to alloc tunnel for request!");
@@ -88,14 +93,15 @@ impl Server {
         let tunstub = Arc::new(tunstub.unwrap());
         let req_idx = tunstub.req_idx;
 
+        // send future
         let send_fut = sink.send_all(rx.map_err(|e| {
             error!("[Server]sink send_all failed:{:?}", e);
             Error::new(ErrorKind::Other, "")
         }));
 
-        let send_fut = send_fut.and_then(move |mut _s| {
+        let send_fut = send_fut.and_then(move |_| {
             info!("[Server]send_fut end, index:{}", req_idx);
-            // s.close();
+            // shutdown read direction
             if let Err(e) = shutdown(rawfd, Shutdown::Read) {
                 error!("[Server]shutdown rawfd error:{}", e);
             }
@@ -103,7 +109,7 @@ impl Server {
             Ok(())
         });
 
-        let north1 = tunstub.clone();
+        let tunstub1 = tunstub.clone();
 
         // when peer send finished(FIN), then for-each(recv) future end
         // and wait rx(send) futue end, when the server indicate that
@@ -119,11 +125,11 @@ impl Server {
             }
         });
 
-        let north2 = north1.clone();
+        let tunstub2 = tunstub1.clone();
         let receive_fut = receive_fut.and_then(move |_| {
             // client(of request) send finished(FIN), indicate that
             // no more data to send
-            ReqMgr::on_request_recv_finished(&north2);
+            ReqMgr::on_request_recv_finished(&tunstub1);
 
             Ok(())
         });
@@ -133,7 +139,7 @@ impl Server {
             .map_err(|_| ())
             .join(send_fut.map_err(|_| ()))
             .then(move |_| {
-                mgr.on_request_closed(&north1);
+                mgr.on_request_closed(&tunstub2);
 
                 Ok(())
             });
