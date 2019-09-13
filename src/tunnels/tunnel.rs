@@ -54,17 +54,17 @@ impl Tunnel {
         }
     }
 
-    pub fn on_tunnel_msg(&self, msg: Message) -> bool {
+    pub fn on_tunnel_msg(&self, msg: Message) {
         // info!("[Tunnel]on_tunnel_msg");
         if msg.is_pong() {
             self.on_pong(msg);
 
-            return true;
+            return;
         }
 
         if !msg.is_binary() {
             info!("[Tunnel]tunnel should only handle binary msg!");
-            return true;
+            return;
         }
 
         let bs = msg.into_data();
@@ -79,7 +79,7 @@ impl Tunnel {
                 match tx {
                     None => {
                         info!("[Tunnel]no request found for: {}:{}", req_idx, req_tag);
-                        return false;
+                        return;
                     }
                     Some(tx) => {
                         let b = Bytes::from(&bs[THEADER_SIZE..]);
@@ -87,7 +87,7 @@ impl Tunnel {
                         match result {
                             Err(e) => {
                                 info!("[Tunnel]tunnel msg send to request failed:{}", e);
-                                return false;
+                                return;
                             }
                             _ => {}
                         }
@@ -115,8 +115,6 @@ impl Tunnel {
                 error!("[Tunnel]unsupport cmd:{:?}, discard msg", cmd);
             }
         }
-
-        return true;
     }
 
     fn on_pong(&self, msg: Message) {

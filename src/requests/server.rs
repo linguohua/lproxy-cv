@@ -1,7 +1,10 @@
 use super::{ReqMgr, Request};
 use log::{error, info};
-use nix::sys::socket::getsockopt;
-use nix::sys::socket::sockopt::OriginalDst;
+use nix::sys::socket::getsockname; // getsockopt
+use nix::sys::socket::setsockopt;
+use nix::sys::socket::sockopt::IpTransparent;
+use nix::sys::socket::InetAddr::V4;
+use nix::sys::socket::SockAddr::Inet;
 use nix::sys::socket::{shutdown, Shutdown};
 use std::io::{Error, ErrorKind};
 use std::os::unix::io::AsRawFd;
@@ -37,8 +40,12 @@ impl Server {
         let addr = &self.listen_addr;
         let addr_inet = addr.parse().unwrap();
         let listener = TcpListener::bind(&addr_inet).expect("unable to bind TCP listener");
+        let rawfd = listener.as_raw_fd();
+        info!("[Server]listener rawfd:{}", rawfd);
+        // enable linux TPROXY
+        let enabled = true;
+        setsockopt(rawfd, IpTransparent, &enabled).unwrap();
 
-        // Pull out a stream of sockets for incoming connections
         let server = listener
             .incoming()
             .map_err(|e| error!("[Server] accept failed = {:?}", e))
@@ -63,11 +70,23 @@ impl Server {
 
         // get real dst address
         let rawfd = socket.as_raw_fd();
-        let result = getsockopt(rawfd, OriginalDst).unwrap();
+        //let result = getsockopt(rawfd, OriginalDst).unwrap();
+        let result = getsockname(rawfd).unwrap();
 
-        let ip_le = result.sin_addr.s_addr;
-        let port_le = result.sin_port.to_be();
-        let ipaddr = std::net::Ipv4Addr::from(ip_le.to_be());
+        let mut ip_le = 0; // result.sin_addr.s_addr;
+        let mut port_le = 0; // result.sin_port.to_be();
+        match result {
+            Inet(iaddr) => match iaddr {
+                V4(v) => {
+                    ip_le = v.sin_addr.s_addr;
+                    port_le = v.sin_port.to_be();
+                }
+                _ => {}
+            },
+            _ => {}
+        }
+
+        let ipaddr = std::net::Ipv4Addr::from(ip_le.to_be()); // ip_le.to_be()
         info!("[Server]serve_sock, ip:{}, port:{}", ipaddr, port_le);
 
         // set 2 seconds write-timeout

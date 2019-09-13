@@ -40,11 +40,8 @@ pub fn connect(url: &str, mgr: &Arc<TunMgr>, index: usize) {
             let receive_fut = stream.for_each(move |message| {
                 debug!("[tunbuilder]tunnel read a message");
                 // post to manager
-                if t.on_tunnel_msg(message) {
-                    Ok(())
-                } else {
-                    Err(tungstenite::Error::ConnectionClosed)
-                }
+                t.on_tunnel_msg(message);
+                Ok(())
             });
 
             let rx = rx.map_err(|_| {
