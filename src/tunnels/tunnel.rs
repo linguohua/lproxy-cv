@@ -8,9 +8,9 @@ use bytes::Bytes;
 use crossbeam::queue::ArrayQueue;
 use futures::sync::mpsc::UnboundedSender;
 use log::{error, info};
+use parking_lot::Mutex;
 use std::sync::atomic::{AtomicI64, AtomicU16, AtomicU8, Ordering};
 use std::sync::Arc;
-use parking_lot::Mutex;
 use std::time::Instant;
 
 use tungstenite::protocol::Message;
@@ -21,6 +21,7 @@ pub struct Tunnel {
 
     pub requests: Mutex<Reqq>,
 
+    pub capacity: u16,
     rtt_queue: ArrayQueue<i64>,
 
     rtt_sum: AtomicI64,
@@ -41,11 +42,12 @@ impl Tunnel {
             }
         }
 
+        let capacity = 100;
         Tunnel {
             tx: tx,
             index: idx,
-            requests: Mutex::new(Reqq::new(100)),
-
+            requests: Mutex::new(Reqq::new(capacity)),
+            capacity: capacity as u16,
             rtt_queue: rtt_queue,
             rtt_sum: AtomicI64::new(0),
             req_count: AtomicU16::new(0),
