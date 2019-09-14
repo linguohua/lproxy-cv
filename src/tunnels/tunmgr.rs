@@ -152,8 +152,14 @@ impl TunMgr {
         for t in tunnels.iter() {
             match t {
                 Some(tun) => {
-                    let rtt_tun = tun.get_rtt();
                     let req_count_tun = tun.get_req_count();
+                    // skip fulled tunnel
+                    if (req_count_tun+1) >= tun.capacity {
+                        continue;
+                    }
+
+                    let rtt_tun = tun.get_rtt();
+
                     let mut selected = false;
                     info!(
                         "[TunMgr]alloc_tunnel_for_req, idx:{}, rtt:{}, req_count:{}",

@@ -14,3 +14,7 @@ impl TunCfg {
         }
     }
 }
+
+pub fn server_url() -> String {
+    "https://localhost:8000/auth".to_string()
+}

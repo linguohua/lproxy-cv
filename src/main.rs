@@ -2,24 +2,24 @@ mod auth;
 mod config;
 mod requests;
 mod tunnels;
-
 use futures::future::{loop_fn, Future, Loop};
+use log::{debug, error};
 use std::time::{Duration, Instant};
 use tokio::timer::Delay;
 
-use log::{debug, error};
-
 fn main() {
     config::log_init().unwrap();
-
     debug!("try to start lproxy-cv server..");
 
-    let req = auth::HTTPRequest::new("https://localhost:8000/auth").unwrap();
+    let httpserver = config::server_url();
+    let req = auth::HTTPRequest::new(&httpserver).unwrap();
 
     let fut_loop = loop_fn(req, |req| {
         req.exec()
-            .and_then(|response| {
+            .and_then(move |response| {
                 debug!("http response:{:?}", response);
+
+                // TODO: use reponse to init TunCfg
                 let cfg = config::TunCfg::new();
                 let tunmgr = tunnels::TunMgr::new(&cfg);
                 let reqmgr = requests::ReqMgr::new(&tunmgr, &cfg);

@@ -21,6 +21,7 @@ use tokio_tcp::TcpStream;
 
 pub struct Server {
     listen_addr: String,
+    // TODO: log request count
 }
 
 impl Server {
@@ -81,7 +82,9 @@ impl Server {
                     ip_le = v.sin_addr.s_addr;
                     port_le = v.sin_port.to_be();
                 }
-                _ => {}
+                _ => {
+                    // TODO: ipv6
+                }
             },
             _ => {}
         }
