@@ -1,14 +1,14 @@
 use super::tunbuilder;
 use super::Tunnel;
 use crate::config::TunCfg;
-use crate::requests::{TunStub, Request};
+use crate::requests::{Request, TunStub};
 
 use crossbeam::queue::ArrayQueue;
 
 use log::info;
 use log::{debug, error};
+use parking_lot::Mutex;
 use std::sync::Arc;
-use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use tokio::prelude::*;
@@ -58,7 +58,7 @@ impl TunMgr {
     pub fn on_tunnel_created(&self, tun: &Arc<Tunnel>) {
         info!("[TunMgr]on_tunnel_created");
         let index = tun.index;
-        let mut tunnels = self.tunnels.lock().unwrap();
+        let mut tunnels = self.tunnels.lock();
         let t = &tunnels[index];
 
         if t.is_some() {
@@ -97,7 +97,7 @@ impl TunMgr {
 
     fn on_tunnel_closed_interal(&self, index: usize) -> TunnelItem {
         info!("[TunMgr]on_tunnel_closed_interal");
-        let mut tunnels = self.tunnels.lock().unwrap();
+        let mut tunnels = self.tunnels.lock();
         let t = &tunnels[index];
 
         match t {
@@ -113,7 +113,7 @@ impl TunMgr {
 
     fn get_tunnel(&self, index: usize) -> TunnelItem {
         info!("[TunMgr]get_tunnel");
-        let tunnels = self.tunnels.lock().unwrap();
+        let tunnels = self.tunnels.lock();
         let tun = &tunnels[index];
 
         match tun {
@@ -122,10 +122,7 @@ impl TunMgr {
         }
     }
 
-    pub fn on_request_created(
-        &self,
-        req: Request,
-    ) -> Option<TunStub> {
+    pub fn on_request_created(&self, req: Request) -> Option<TunStub> {
         info!("[TunMgr]on_request_created");
         if let Some(tun) = self.alloc_tunnel_for_req() {
             tun.on_request_created(req)
@@ -147,7 +144,7 @@ impl TunMgr {
 
     fn alloc_tunnel_for_req(&self) -> TunnelItem {
         info!("[TunMgr]alloc_tunnel_for_req");
-        let tunnels = self.tunnels.lock().unwrap();
+        let tunnels = self.tunnels.lock();
         let mut tselected = None;
         let mut rtt = std::i64::MAX;
         let mut req_count = std::u16::MAX;
@@ -205,7 +202,7 @@ impl TunMgr {
     }
 
     fn send_pings(&self) {
-        let tunnels = self.tunnels.lock().unwrap();
+        let tunnels = self.tunnels.lock();
         for t in tunnels.iter() {
             match t {
                 Some(tun) => {

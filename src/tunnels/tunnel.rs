@@ -10,7 +10,7 @@ use futures::sync::mpsc::UnboundedSender;
 use log::{error, info};
 use std::sync::atomic::{AtomicI64, AtomicU16, AtomicU8, Ordering};
 use std::sync::Arc;
-use std::sync::Mutex;
+use parking_lot::Mutex;
 use std::time::Instant;
 
 use tungstenite::protocol::Message;
@@ -44,7 +44,7 @@ impl Tunnel {
         Tunnel {
             tx: tx,
             index: idx,
-            requests: Mutex::new(Reqq::new(1)),
+            requests: Mutex::new(Reqq::new(100)),
 
             rtt_queue: rtt_queue,
             rtt_sum: AtomicI64::new(0),
@@ -105,7 +105,7 @@ impl Tunnel {
                 let req_idx = th.req_idx;
                 let req_tag = th.req_tag;
                 // TODO: extract new method
-                let reqs = &mut self.requests.lock().unwrap();
+                let reqs = &mut self.requests.lock();
                 let r = reqs.free(req_idx, req_tag);
                 if r {
                     self.req_count.fetch_sub(1, Ordering::SeqCst);
@@ -164,7 +164,7 @@ impl Tunnel {
     }
 
     fn get_request_tx(&self, req_idx: u16, req_tag: u16) -> Option<UnboundedSender<Bytes>> {
-        let requests = &self.requests.lock().unwrap();
+        let requests = &self.requests.lock();
         let req_idx = req_idx as usize;
         if req_idx >= requests.elements.len() {
             return None;
@@ -186,7 +186,7 @@ impl Tunnel {
     }
 
     fn free_request_tx(&self, req_idx: u16, req_tag: u16) {
-        let requests = &mut self.requests.lock().unwrap();
+        let requests = &mut self.requests.lock();
         let req_idx = req_idx as usize;
         if req_idx >= requests.elements.len() {
             return;
@@ -219,7 +219,7 @@ impl Tunnel {
     }
 
     fn on_request_created_internal(&self, req: Request) -> Option<TunStub> {
-        let reqs = &mut self.requests.lock().unwrap();
+        let reqs = &mut self.requests.lock();
         let (idx, tag) = reqs.alloc(req);
         let tun_idx;
         if idx != std::u16::MAX {
@@ -241,7 +241,7 @@ impl Tunnel {
 
     pub fn on_request_closed(&self, tunstub: &Arc<TunStub>) {
         info!("[Tunnel]on_request_closed, tun index:{}", self.index);
-        let reqs = &mut self.requests.lock().unwrap();
+        let reqs = &mut self.requests.lock();
         let r = reqs.free(tunstub.req_idx, tunstub.req_tag);
 
         if r {
@@ -256,7 +256,7 @@ impl Tunnel {
 
     pub fn on_closed(&self) {
         // free all requests
-        let reqs = &mut self.requests.lock().unwrap();
+        let reqs = &mut self.requests.lock();
         reqs.clear_all();
 
         info!(
