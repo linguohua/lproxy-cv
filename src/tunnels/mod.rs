@@ -6,3 +6,5 @@ mod theader;
 pub use theader::*;
 mod tunbuilder;
 pub use tunbuilder::*;
+mod wsconn;
+pub use wsconn::*;

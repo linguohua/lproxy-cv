@@ -18,8 +18,11 @@ pub const KEEP_ALIVE_INTERVAL: u64 = 5000;
 type TunnelItem = Option<Arc<Tunnel>>;
 
 pub struct TunMgr {
-    url: String,
+    pub relay_domain: String,
+    pub relay_port: u16,
+    pub url: String,
     capacity: usize,
+    pub tunnel_req_cap: usize,
     tunnels: Mutex<Vec<TunnelItem>>,
     reconnect_queue: ArrayQueue<u16>,
 }
@@ -39,8 +42,11 @@ impl TunMgr {
         Arc::new(TunMgr {
             url: cfg.websocket_url.to_string(),
             capacity: capacity,
+            tunnel_req_cap: cfg.tunnel_req_cap,
             tunnels: m,
             reconnect_queue: ArrayQueue::new(capacity),
+            relay_domain: cfg.relay_domain.to_string(),
+            relay_port: cfg.relay_port,
         })
     }
 
@@ -49,7 +55,7 @@ impl TunMgr {
         for n in 0..self.capacity {
             let index = n;
             let mgr = self.clone();
-            tunbuilder::connect(&self.url, &mgr, index);
+            tunbuilder::connect(&mgr, index);
         }
 
         self.clone().start_keepalive_timer();
@@ -154,7 +160,7 @@ impl TunMgr {
                 Some(tun) => {
                     let req_count_tun = tun.get_req_count();
                     // skip fulled tunnel
-                    if (req_count_tun+1) >= tun.capacity {
+                    if (req_count_tun + 1) >= tun.capacity {
                         continue;
                     }
 
@@ -226,7 +232,7 @@ impl TunMgr {
             if let Ok(index) = self.reconnect_queue.pop() {
                 info!("[TunMgr]process_reconnect, index:{}", index);
 
-                tunbuilder::connect(&self.url, &self, index as usize);
+                tunbuilder::connect(&self, index as usize);
             } else {
                 break;
             }

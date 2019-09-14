@@ -32,7 +32,7 @@ pub struct Tunnel {
 }
 
 impl Tunnel {
-    pub fn new(tx: UnboundedSender<Message>, idx: usize) -> Tunnel {
+    pub fn new(tx: UnboundedSender<Message>, idx: usize, cap:usize) -> Tunnel {
         info!("[Tunnel]new Tunnel, idx:{}", idx);
         let size = 5;
         let rtt_queue = ArrayQueue::new(size);
@@ -42,7 +42,7 @@ impl Tunnel {
             }
         }
 
-        let capacity = 100;
+        let capacity = cap;
         Tunnel {
             tx: tx,
             index: idx,
