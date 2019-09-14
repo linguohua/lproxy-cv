@@ -8,5 +8,3 @@ mod reqq;
 pub use reqq::*;
 mod tunstub;
 pub use tunstub::*;
-mod tproxysock;
-pub use tproxysock::*;
