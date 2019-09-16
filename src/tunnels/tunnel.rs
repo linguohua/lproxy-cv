@@ -1,3 +1,4 @@
+use crate::config::KEEP_ALIVE_INTERVAL;
 use super::Cmd;
 use super::THeader;
 use crate::requests::Reqq;
@@ -289,7 +290,7 @@ impl Tunnel {
                 self.ping_count.fetch_add(1, Ordering::SeqCst);
                 if ping_count > 0 {
                     // TODO: fix accurate RTT?
-                    self.append_rtt(ping_count * (super::KEEP_ALIVE_INTERVAL as i64));
+                    self.append_rtt(ping_count * (KEEP_ALIVE_INTERVAL as i64));
                 }
             }
         }

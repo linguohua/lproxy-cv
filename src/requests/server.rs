@@ -26,7 +26,7 @@ pub struct Server {
 
 impl Server {
     pub fn new(addr: &str) -> Arc<Server> {
-        info!("[Server]new server, add:{}", addr);
+        info!("[Server]new server, addr:{}", addr);
         Arc::new(Server {
             listen_addr: addr.to_string(),
         })

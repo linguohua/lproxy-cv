@@ -1,3 +1,4 @@
+use crate::config::KEEP_ALIVE_INTERVAL;
 use super::tunbuilder;
 use super::Tunnel;
 use crate::config::TunCfg;
@@ -13,7 +14,6 @@ use std::time::{Duration, Instant};
 
 use tokio::prelude::*;
 use tokio::timer::Interval;
-pub const KEEP_ALIVE_INTERVAL: u64 = 5000;
 
 type TunnelItem = Option<Arc<Tunnel>>;
 

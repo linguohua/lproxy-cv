@@ -2,6 +2,7 @@ mod auth;
 mod config;
 mod requests;
 mod tunnels;
+mod dns;
 use futures::future::{loop_fn, Future, Loop};
 use log::{debug, error};
 use std::time::{Duration, Instant};
@@ -23,9 +24,11 @@ fn main() {
                 let cfg = config::TunCfg::new();
                 let tunmgr = tunnels::TunMgr::new(&cfg);
                 let reqmgr = requests::ReqMgr::new(&tunmgr, &cfg);
+                let forwarder = dns::Forwarder::new(&cfg);
 
                 tunmgr.init();
                 reqmgr.init();
+                forwarder.init();
 
                 Ok(true)
             })

@@ -1,3 +1,5 @@
+pub const KEEP_ALIVE_INTERVAL: u64 = 5000;
+
 #[derive(Debug)]
 pub struct TunCfg {
     pub tunnel_number: usize,
@@ -6,6 +8,10 @@ pub struct TunCfg {
     pub tunnel_req_cap: usize,
     pub relay_domain: String,
     pub relay_port: u16,
+
+    pub dns_udp_addr: String,
+    pub dns_tun_url: String,
+    pub dns_tunnel_number:usize,
 }
 
 impl TunCfg {
@@ -15,8 +21,12 @@ impl TunCfg {
             websocket_url: "wss://localhost/tun".to_string(),
             local_server: "127.0.0.1:5000".to_string(),
             tunnel_req_cap: 100,
-            relay_domain:"127.0.0.1".to_string(),
-            relay_port:8000,
+            relay_domain: "127.0.0.1".to_string(),
+            relay_port: 8000,
+
+            dns_udp_addr: "127.0.0.1:5000".to_string(),
+            dns_tun_url: "wss://localhost/dns".to_string(),
+            dns_tunnel_number:1,
         }
     }
 }
