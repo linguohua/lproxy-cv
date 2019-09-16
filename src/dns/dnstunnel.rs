@@ -3,6 +3,8 @@ use byte::*;
 use crossbeam::queue::ArrayQueue;
 use futures::sync::mpsc::UnboundedSender;
 use log::{error, info};
+use std::net::IpAddr::V4;
+use std::net::IpAddr::V6;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::atomic::{AtomicI64, AtomicU8, Ordering};
 use std::time::Instant;
@@ -30,7 +32,7 @@ impl DnsTunnel {
         let rtt_queue = ArrayQueue::new(size);
         for _ in 0..size {
             if let Err(e) = rtt_queue.push(0) {
-                panic!("init rtt_queue failed:{}", e);
+                panic!("[DnsTunnel]init rtt_queue failed:{}", e);
             }
         }
 
@@ -46,10 +48,16 @@ impl DnsTunnel {
     }
 
     pub fn on_tunnel_msg(&self, msg: Message) {
+        if msg.is_pong() {
+            self.on_pong(msg);
+
+            return;
+        }
+
         let bs = msg.into_data();
         let len = bs.len();
         if len < 6 {
-            error!("[Tunnel]pong data length({}) != 8", len);
+            error!("[DnsTunnel]on_tunnel_msg data length({}) != 8", len);
             return;
         }
 
@@ -58,10 +66,11 @@ impl DnsTunnel {
                 let offset = &mut 0;
                 let port = bs.read_with::<u16>(offset, LE).unwrap();
                 let ip32 = bs.read_with::<u32>(offset, LE).unwrap();
+                info!("[DnsTunnel]on_tunnel_msg, port:{}, ip:{}", port, ip32);
                 let content = &bs[6..];
                 let sockaddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::from(ip32)), port);
                 tx.unbounded_send((bytes::Bytes::from(content), sockaddr))
-                    .unwrap();
+                    .unwrap(); // udp send should not failed!
             }
             None => {}
         }
@@ -104,6 +113,28 @@ impl DnsTunnel {
         true
     }
 
+    fn on_pong(&self, msg: Message) {
+        let bs = msg.into_data();
+        let len = bs.len();
+        if len != 8 {
+            error!("[DnsTunnel]pong data length({}) != 8", len);
+            return;
+        }
+
+        // reset ping count
+        self.ping_count.store(0, Ordering::SeqCst);
+
+        let offset = &mut 0;
+        let timestamp = bs.read_with::<u64>(offset, LE).unwrap();
+
+        let in_ms = self.get_elapsed_milliseconds();
+        assert!(in_ms >= timestamp, "[DnsTunnel]pong timestamp > now!");
+
+        let rtt = in_ms - timestamp;
+        let rtt = rtt as i64;
+        self.append_rtt(rtt);
+    }
+
     fn get_elapsed_milliseconds(&self) -> u64 {
         let in_ms = self.time.elapsed().as_millis();
         in_ms as u64
@@ -122,5 +153,44 @@ impl DnsTunnel {
     pub fn get_rtt(&self) -> i64 {
         let rtt_sum = self.rtt_sum.load(Ordering::SeqCst);
         rtt_sum / (self.rtt_queue.len() as i64)
+    }
+
+    pub fn on_dns_udp_msg(&self, message: &bytes::BytesMut, addr: &std::net::SocketAddr) {
+        let port = addr.port();
+        let mut ip: u32 = 0;
+        match addr.ip() {
+            V4(v4) => {
+                ip = v4.into();
+            }
+            V6(_) => {
+                // TODO: support v6
+                error!("[DnsTunnel]ip6 address not supported yet");
+            }
+        }
+
+        let size = message.len();
+        let hsize = 6; // port + ipv4
+        let buf = &mut vec![0; hsize + size];
+        let header = &mut buf[0..hsize];
+        let offset = &mut 0;
+        info!("[DnsTunnel]on_dns_udp_msg, port:{}, ip:{}", port, ip);
+        header.write_with::<u16>(offset, port, LE).unwrap();
+        header.write_with::<u32>(offset, ip, LE).unwrap();
+
+        let msg_body = &mut buf[hsize..];
+        msg_body.copy_from_slice(message.as_ref());
+
+        let wmsg = Message::from(&buf[..]);
+        let tx = &self.tx;
+        let result = tx.unbounded_send(wmsg);
+        match result {
+            Err(e) => {
+                error!(
+                    "[DnsTunnel]request tun send error:{}, tun_tx maybe closed",
+                    e
+                );
+            }
+            _ => info!("[DnsTunnel]unbounded_send request msg",),
+        }
     }
 }

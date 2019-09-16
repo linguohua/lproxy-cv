@@ -1,6 +1,6 @@
-use crate::config::KEEP_ALIVE_INTERVAL;
 use super::Cmd;
 use super::THeader;
+use crate::config::KEEP_ALIVE_INTERVAL;
 use crate::requests::Reqq;
 use crate::requests::{Request, TunStub};
 use crate::tunnels::theader::THEADER_SIZE;
@@ -33,13 +33,13 @@ pub struct Tunnel {
 }
 
 impl Tunnel {
-    pub fn new(tx: UnboundedSender<Message>, idx: usize, cap:usize) -> Tunnel {
+    pub fn new(tx: UnboundedSender<Message>, idx: usize, cap: usize) -> Tunnel {
         info!("[Tunnel]new Tunnel, idx:{}", idx);
         let size = 5;
         let rtt_queue = ArrayQueue::new(size);
         for _ in 0..size {
             if let Err(e) = rtt_queue.push(0) {
-                panic!("init rtt_queue failed:{}", e);
+                panic!("[Tunnel]init rtt_queue failed:{}", e);
             }
         }
 

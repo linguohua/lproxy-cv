@@ -182,12 +182,50 @@ impl Forwarder {
             message.len(),
             addr
         );
+
         // select tunnel
-
-        // write port, ip
-
-        // write content
+        let tun = self.alloc_tunnel_for_req();
+        match tun {
+            Some(tun) => {
+                tun.on_dns_udp_msg(message, addr);
+            },
+            None => {
+                error!("[Forwarder]on_dns_udp_msg, no tunnel");
+            }
+        }
 
         true
+    }
+
+    fn alloc_tunnel_for_req(&self) -> TunnelItem {
+        info!("[Forwarder]alloc_tunnel_for_req");
+        let tunnels = self.tunnels.lock();
+        let mut tselected = None;
+        let mut rtt = std::i64::MAX;
+
+        for t in tunnels.iter() {
+            match t {
+                Some(tun) => {
+                    let rtt_tun = tun.get_rtt();
+
+                    let mut selected = false;
+                    info!(
+                        "[Forwarder]alloc_tunnel_for_req, idx:{}, rtt:{}",
+                        tun.index, rtt_tun,
+                    );
+
+                    if rtt_tun < rtt {
+                        selected = true;
+                    }
+                    if selected {
+                        rtt = rtt_tun;
+                        tselected = Some(tun.clone());
+                    }
+                }
+                None => {}
+            }
+        }
+
+        tselected
     }
 }

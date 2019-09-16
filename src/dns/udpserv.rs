@@ -27,8 +27,23 @@ impl UdpServer {
     pub fn start(self: Arc<UdpServer>, forward: &Arc<Forwarder>) {
         let listen_addr = &self.listen_addr;
 
-        let addr: SocketAddr = listen_addr.parse().unwrap();
-        let a = UdpSocket::bind(&addr).unwrap();
+        let addr: SocketAddr;
+        match listen_addr.parse() {
+            Ok(a) => addr = a,
+            Err(e) => {
+                error!("parse udp listen addr failed:{}", e);
+                return;
+            }
+        }
+
+        let a;
+        match UdpSocket::bind(&addr) {
+            Ok(a1) => a =a1,
+            Err(e) => {
+                error!("bind udp to addr: {} failed: {}", listen_addr, e);
+                return;
+            }
+        }
 
         let (a_sink, a_stream) = UdpFramed::new(a, BytesCodec::new()).split();
 
