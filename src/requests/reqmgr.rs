@@ -4,12 +4,13 @@ use crate::config::TunCfg;
 use crate::tunnels::TunMgr;
 use crate::tunnels::THEADER_SIZE;
 use crate::tunnels::{Cmd, THeader};
+use failure::Error;
 
 use bytes::BytesMut;
 
 use log::{error, info};
+use std::result::Result;
 use std::sync::Arc;
-
 use tungstenite::protocol::Message;
 
 pub struct ReqMgr {
@@ -27,11 +28,11 @@ impl ReqMgr {
         })
     }
 
-    pub fn init(self: Arc<ReqMgr>) {
+    pub fn init(self: Arc<ReqMgr>) -> Result<(), Error> {
         info!("[ReqMgr]init ReqMgr");
         let s = self.server.clone();
 
-        s.start(&self);
+        s.start(&self)
     }
 
     pub fn on_request_msg(message: BytesMut, tun: &Arc<TunStub>) -> bool {
@@ -94,12 +95,13 @@ impl ReqMgr {
         tm.on_request_closed(tunstub)
     }
 
-    pub fn on_request_created(
-        &self,
-        req: super::Request,
-    ) -> Option<TunStub> {
+    pub fn on_request_created(&self, req: super::Request) -> Option<TunStub> {
         info!("[ReqMgr]on_request_created, req:{:?}", req);
         let tm = &self.tm;
         tm.on_request_created(req)
+    }
+
+    pub fn stop(&self) {
+        self.server.stop();
     }
 }

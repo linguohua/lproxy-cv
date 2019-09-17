@@ -1,17 +1,15 @@
 use super::dnstunbuilder;
 use super::DnsTunnel;
 use crate::config::TunCfg;
+use crossbeam::queue::ArrayQueue;
+use failure::Error;
+use parking_lot::Mutex;
+use std::result::Result;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use crossbeam::queue::ArrayQueue;
-use parking_lot::Mutex;
-
 use super::UdpServer;
-use crate::config::KEEP_ALIVE_INTERVAL;
-use log::{debug, error, info};
-use std::time::{Duration, Instant};
-use tokio::prelude::*;
-use tokio::timer::Interval;
+use log::{error, info};
 type TunnelItem = Option<Arc<DnsTunnel>>;
 
 pub struct Forwarder {
@@ -25,6 +23,7 @@ pub struct Forwarder {
     capacity: usize,
 
     server: Arc<UdpServer>,
+    discarded: AtomicBool,
 }
 
 impl Forwarder {
@@ -47,26 +46,37 @@ impl Forwarder {
             reconnect_queue: ArrayQueue::new(capacity),
             capacity: capacity,
             server: UdpServer::new(&cfg.dns_udp_addr),
+            discarded: AtomicBool::new(false),
         })
     }
 
-    pub fn init(self: Arc<Forwarder>) {
+    pub fn init(self: Arc<Forwarder>) -> Result<(), Error> {
         info!("[Forwarder]init");
-        self.server.clone().start(&self);
+        self.server.clone().start(&self)
     }
 
     pub fn on_dns_udp_created(self: Arc<Forwarder>) {
-        for n in 0..self.capacity {
-            let index = n;
-            let mgr = self.clone();
-            dnstunbuilder::connect(&mgr, index, self.server.get_tx());
+        let tx = self.server.get_tx();
+        match tx {
+            Some(tx) => {
+                for n in 0..self.capacity {
+                    let index = n;
+                    let mgr = self.clone();
+                    dnstunbuilder::connect(&mgr, index, tx.clone());
+                }
+            }
+            None => {}
         }
-
-        self.clone().start_keepalive_timer();
     }
 
     pub fn on_tunnel_created(&self, tun: &Arc<DnsTunnel>) {
         info!("[Forwarder]on_tunnel_created");
+        if self.discarded.load(Ordering::SeqCst) != false {
+            error!("[Forwarder]on_tunnel_created, forwarder is discarded, tun will be discarded");
+
+            return;
+        }
+
         let index = tun.index;
         let mut tunnels = self.tunnels.lock();
         let t = &tunnels[index];
@@ -114,6 +124,14 @@ impl Forwarder {
 
     pub fn on_tunnel_build_error(&self, index: usize) {
         info!("[Forwarder]on_tunnel_build_error");
+        if self.discarded.load(Ordering::SeqCst) != false {
+            error!(
+                "[Forwarder]on_tunnel_build_error, forwarder is discarded, tun will not reconnect"
+            );
+
+            return;
+        }
+
         if let Err(e) = self.reconnect_queue.push(index as u16) {
             panic!("[Forwarder]on_tunnel_build_error push failed:{}", e);
         }
@@ -124,35 +142,13 @@ impl Forwarder {
         );
     }
 
-    fn start_keepalive_timer(self: Arc<Forwarder>) {
-        info!("[Forwarder]start_keepalive_timer");
-        // tokio timer, every 3 seconds
-        let task = Interval::new(Instant::now(), Duration::from_millis(KEEP_ALIVE_INTERVAL))
-            .for_each(move |instant| {
-                debug!("[Forwarder]keepalive timer fire; instant={:?}", instant);
-                self.send_pings();
-
-                self.clone().process_reconnect();
-
-                Ok(())
-            })
-            .map_err(|e| {
-                error!(
-                    "[Forwarder]start_keepalive_timer interval errored; err={:?}",
-                    e
-                )
-            });
-
-        tokio::spawn(task);
-    }
-
     fn send_pings(&self) {
         let tunnels = self.tunnels.lock();
         for t in tunnels.iter() {
             match t {
                 Some(tun) => {
                     if !tun.send_ping() {
-                        // TODO: close underlay tcp-stream?
+                        tun.close_rawfd();
                     }
                 }
                 None => {}
@@ -161,14 +157,18 @@ impl Forwarder {
     }
 
     fn process_reconnect(self: Arc<Forwarder>) {
-        loop {
-            if let Ok(index) = self.reconnect_queue.pop() {
-                info!("[Forwarder]process_reconnect, index:{}", index);
+        let tx = self.server.get_tx();
+        match tx {
+            Some(tx) => loop {
+                if let Ok(index) = self.reconnect_queue.pop() {
+                    info!("[Forwarder]process_reconnect, index:{}", index);
 
-                dnstunbuilder::connect(&self, index as usize, self.server.get_tx());
-            } else {
-                break;
-            }
+                    dnstunbuilder::connect(&self, index as usize, tx.clone());
+                } else {
+                    break;
+                }
+            },
+            None => {}
         }
     }
 
@@ -177,18 +177,18 @@ impl Forwarder {
     }
 
     pub fn on_dns_udp_msg(&self, message: &bytes::BytesMut, addr: &std::net::SocketAddr) -> bool {
-        info!(
-            "[Forwarder]on_dns_udp_msg, len:{}, src:{}",
-            message.len(),
-            addr
-        );
+        if self.discarded.load(Ordering::SeqCst) != false {
+            error!("[Forwarder]on_dns_udp_msg, forwarder is discarded, request will be discarded");
+
+            return false;
+        }
 
         // select tunnel
         let tun = self.alloc_tunnel_for_req();
         match tun {
             Some(tun) => {
                 tun.on_dns_udp_msg(message, addr);
-            },
+            }
             None => {
                 error!("[Forwarder]on_dns_udp_msg, no tunnel");
             }
@@ -227,5 +227,40 @@ impl Forwarder {
         }
 
         tselected
+    }
+
+    pub fn keepalive(self: Arc<Forwarder>) {
+        if self.discarded.load(Ordering::SeqCst) != false {
+            error!("[Forwarder]keepalive, forwarder is discarded, not do keepalive");
+
+            return;
+        }
+
+        self.send_pings();
+        self.process_reconnect();
+    }
+
+    pub fn stop(&self) {
+        if self
+            .discarded
+            .compare_and_swap(false, true, Ordering::SeqCst)
+            != false
+        {
+            error!("[Forwarder]stop, forwarder is already discarded");
+
+            return;
+        }
+
+        self.server.stop();
+
+        let tunnels = self.tunnels.lock();
+        for t in tunnels.iter() {
+            match t {
+                Some(tun) => {
+                    tun.close_rawfd();
+                }
+                None => {}
+            }
+        }
     }
 }

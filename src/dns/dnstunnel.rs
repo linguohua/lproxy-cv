@@ -9,6 +9,8 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::atomic::{AtomicI64, AtomicU8, Ordering};
 use std::time::Instant;
 use tungstenite::protocol::Message;
+use nix::unistd::close;
+use std::os::unix::io::RawFd;
 
 type TxType = UnboundedSender<(bytes::Bytes, std::net::SocketAddr)>;
 
@@ -23,10 +25,11 @@ pub struct DnsTunnel {
     time: Instant,
 
     udp_tx: Option<TxType>,
+    rawfd: RawFd,
 }
 
 impl DnsTunnel {
-    pub fn new(tx: UnboundedSender<Message>, udp_tx: Option<TxType>, idx: usize) -> DnsTunnel {
+    pub fn new(tx: UnboundedSender<Message>, rawfd:RawFd, udp_tx: TxType, idx: usize) -> DnsTunnel {
         info!("[DnsTunnel]new Tunnel, idx:{}", idx);
         let size = 5;
         let rtt_queue = ArrayQueue::new(size);
@@ -43,7 +46,8 @@ impl DnsTunnel {
             rtt_sum: AtomicI64::new(0),
             ping_count: AtomicU8::new(0),
             time: Instant::now(),
-            udp_tx: udp_tx,
+            udp_tx: Some(udp_tx),
+            rawfd,
         }
     }
 
@@ -191,6 +195,16 @@ impl DnsTunnel {
                 );
             }
             _ => info!("[DnsTunnel]unbounded_send request msg",),
+        }
+    }
+
+    pub fn close_rawfd(&self) {
+        let r = close(self.rawfd);
+        match r {
+            Err(e) => {
+                info!("[Tunnel]close_rawfd failed:{}", e);
+            }
+            _ => {}
         }
     }
 }

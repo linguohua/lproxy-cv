@@ -1,3 +1,4 @@
+use std::os::unix::io::RawFd;
 use super::Cmd;
 use super::THeader;
 use crate::config::KEEP_ALIVE_INTERVAL;
@@ -13,6 +14,7 @@ use parking_lot::Mutex;
 use std::sync::atomic::{AtomicI64, AtomicU16, AtomicU8, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
+use nix::unistd::close;
 
 use tungstenite::protocol::Message;
 
@@ -30,10 +32,11 @@ pub struct Tunnel {
     ping_count: AtomicU8,
 
     time: Instant,
+    rawfd: RawFd,
 }
 
 impl Tunnel {
-    pub fn new(tx: UnboundedSender<Message>, idx: usize, cap: usize) -> Tunnel {
+    pub fn new(tx: UnboundedSender<Message>, rawfd:RawFd, idx: usize, cap: usize) -> Tunnel {
         info!("[Tunnel]new Tunnel, idx:{}", idx);
         let size = 5;
         let rtt_queue = ArrayQueue::new(size);
@@ -54,6 +57,7 @@ impl Tunnel {
             req_count: AtomicU16::new(0),
             ping_count: AtomicU8::new(0),
             time: Instant::now(),
+            rawfd: rawfd,
         }
     }
 
@@ -347,6 +351,14 @@ impl Tunnel {
         // send to peer, should always succeed
         if let Err(e) = ts.tunnel_tx.unbounded_send(wmsg) {
             error!("[Tunnel]send_request_closed_to_server tx send failed:{}", e);
+        }
+    }
+
+    pub fn close_rawfd(&self) {
+        let r = close(self.rawfd);
+        match r {
+            Err(e) => {info!("[Tunnel]close_rawfd failed:{}", e);},
+            _ => {},
         }
     }
 }

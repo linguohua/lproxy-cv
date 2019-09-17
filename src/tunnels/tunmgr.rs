@@ -1,19 +1,18 @@
-use crate::config::KEEP_ALIVE_INTERVAL;
 use super::tunbuilder;
 use super::Tunnel;
 use crate::config::TunCfg;
+use std::sync::atomic::{AtomicBool, Ordering};
+
 use crate::requests::{Request, TunStub};
 
 use crossbeam::queue::ArrayQueue;
+use failure::Error;
+use std::result::Result;
 
+use log::error;
 use log::info;
-use log::{debug, error};
 use parking_lot::Mutex;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
-
-use tokio::prelude::*;
-use tokio::timer::Interval;
 
 type TunnelItem = Option<Arc<Tunnel>>;
 
@@ -25,6 +24,7 @@ pub struct TunMgr {
     pub tunnel_req_cap: usize,
     tunnels: Mutex<Vec<TunnelItem>>,
     reconnect_queue: ArrayQueue<u16>,
+    discarded: AtomicBool,
 }
 
 impl TunMgr {
@@ -47,10 +47,11 @@ impl TunMgr {
             reconnect_queue: ArrayQueue::new(capacity),
             relay_domain: cfg.relay_domain.to_string(),
             relay_port: cfg.relay_port,
+            discarded: AtomicBool::new(false),
         })
     }
 
-    pub fn init(self: Arc<TunMgr>) {
+    pub fn init(self: Arc<TunMgr>) -> Result<(), Error> {
         info!("[TunMgr]init");
         for n in 0..self.capacity {
             let index = n;
@@ -58,11 +59,17 @@ impl TunMgr {
             tunbuilder::connect(&mgr, index);
         }
 
-        self.clone().start_keepalive_timer();
+        Ok(())
     }
 
     pub fn on_tunnel_created(&self, tun: &Arc<Tunnel>) {
         info!("[TunMgr]on_tunnel_created");
+        if self.discarded.load(Ordering::SeqCst) != false {
+            error!("[TunMgr]on_tunnel_created, tunmgr is discarded, tun will be discarded");
+
+            return;
+        }
+
         let index = tun.index;
         let mut tunnels = self.tunnels.lock();
         let t = &tunnels[index];
@@ -94,6 +101,12 @@ impl TunMgr {
 
     pub fn on_tunnel_build_error(&self, index: usize) {
         info!("[TunMgr]on_tunnel_build_error");
+        if self.discarded.load(Ordering::SeqCst) != false {
+            error!("[TunMgr]on_tunnel_build_error, tunmgr is discarded, tun will be not reconnect");
+
+            return;
+        }
+
         if let Err(e) = self.reconnect_queue.push(index as u16) {
             panic!("[TunMgr]on_tunnel_build_error push failed:{}", e);
         }
@@ -130,6 +143,12 @@ impl TunMgr {
 
     pub fn on_request_created(&self, req: Request) -> Option<TunStub> {
         info!("[TunMgr]on_request_created");
+        if self.discarded.load(Ordering::SeqCst) != false {
+            error!("[TunMgr]on_request_created, tunmgr is discarded, request will be discarded");
+
+            return None;
+        }
+
         if let Some(tun) = self.alloc_tunnel_for_req() {
             tun.on_request_created(req)
         } else {
@@ -191,35 +210,13 @@ impl TunMgr {
         tselected
     }
 
-    fn start_keepalive_timer(self: Arc<TunMgr>) {
-        info!("[TunMgr]start_keepalive_timer");
-        // tokio timer, every 3 seconds
-        let task = Interval::new(Instant::now(), Duration::from_millis(KEEP_ALIVE_INTERVAL))
-            .for_each(move |instant| {
-                debug!("[TunMgr]keepalive timer fire; instant={:?}", instant);
-                self.send_pings();
-
-                self.clone().process_reconnect();
-
-                Ok(())
-            })
-            .map_err(|e| {
-                error!(
-                    "[TunMgr]start_keepalive_timer interval errored; err={:?}",
-                    e
-                )
-            });
-
-        tokio::spawn(task);
-    }
-
     fn send_pings(&self) {
         let tunnels = self.tunnels.lock();
         for t in tunnels.iter() {
             match t {
                 Some(tun) => {
                     if !tun.send_ping() {
-                        // TODO: close underlay tcp-stream?
+                        tun.close_rawfd();
                     }
                 }
                 None => {}
@@ -235,6 +232,39 @@ impl TunMgr {
                 tunbuilder::connect(&self, index as usize);
             } else {
                 break;
+            }
+        }
+    }
+
+    pub fn keepalive(self: Arc<TunMgr>) {
+        if self.discarded.load(Ordering::SeqCst) != false {
+            error!("[TunMgr]keepalive, tunmgr is discarded, not do keepalive");
+
+            return;
+        }
+        self.send_pings();
+        self.process_reconnect();
+    }
+
+    pub fn stop(&self) {
+        if self
+            .discarded
+            .compare_and_swap(false, true, Ordering::SeqCst)
+            != false
+        {
+            error!("[TunMgr]stop, tunmgr is already discarded");
+
+            return;
+        }
+
+        // close all tunnel, and forbit reconnect
+        let tunnels = self.tunnels.lock();
+        for t in tunnels.iter() {
+            match t {
+                Some(tun) => {
+                    tun.close_rawfd();
+                }
+                None => {}
             }
         }
     }

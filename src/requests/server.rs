@@ -6,11 +6,10 @@ use nix::sys::socket::sockopt::IpTransparent;
 use nix::sys::socket::InetAddr::V4;
 use nix::sys::socket::SockAddr::Inet;
 use nix::sys::socket::{shutdown, Shutdown};
-use std::io::{Error, ErrorKind};
 use std::os::unix::io::AsRawFd;
 use std::sync::Arc;
 use std::time::Duration;
-use stream_cancel::{StreamExt, Tripwire};
+use stream_cancel::{StreamExt, Trigger, Tripwire};
 use tokio;
 use tokio::codec::Decoder;
 use tokio::prelude::*;
@@ -18,10 +17,14 @@ use tokio_codec::BytesCodec;
 use tokio_io_timeout::TimeoutStream;
 use tokio_tcp::TcpListener;
 use tokio_tcp::TcpStream;
+use std::result::{Result};
+use failure::{Error};
+use parking_lot::Mutex;
 
 pub struct Server {
     listen_addr: String,
     // TODO: log request count
+    listener_trigger: Mutex<Option<Trigger>>,
 }
 
 impl Server {
@@ -29,37 +32,49 @@ impl Server {
         info!("[Server]new server, addr:{}", addr);
         Arc::new(Server {
             listen_addr: addr.to_string(),
+            listener_trigger: Mutex::new(None),
         })
     }
 
-    pub fn start(self: Arc<Server>, mgr: &Arc<ReqMgr>) {
+    pub fn start(self: Arc<Server>, mgr: &Arc<ReqMgr>) -> Result<(), Error> {
         let mgr = mgr.clone();
         info!("[Server]start local server at:{}", self.listen_addr);
 
         // start tcp server listen at addr
         // Bind the server's socket.
         let addr = &self.listen_addr;
-        let addr_inet = addr.parse().unwrap();
-        let listener = TcpListener::bind(&addr_inet).expect("unable to bind TCP listener");
+        let addr_inet = addr.parse().map_err(|e|Error::from(e))?;
+        let listener = TcpListener::bind(&addr_inet).map_err(|e|Error::from(e))?;
+
         let rawfd = listener.as_raw_fd();
         info!("[Server]listener rawfd:{}", rawfd);
         // enable linux TPROXY
         let enabled = true;
-        setsockopt(rawfd, IpTransparent, &enabled).unwrap();
+        setsockopt(rawfd, IpTransparent, &enabled).map_err(|e|Error::from(e))?;
+
+        let (trigger, tripwire) = Tripwire::new();
+        self.save_listener_trigger(trigger);
 
         let server = listener
             .incoming()
             .map_err(|e| error!("[Server] accept failed = {:?}", e))
+            .take_until(tripwire)
             .for_each(move |sock| {
                 // service new socket
                 let mgr = mgr.clone();
                 Server::serve_sock(sock, mgr);
 
                 Ok(())
+            })
+            .then(|_| {
+                info!("[Server]listening future completed");
+                Ok(())
             });
 
         // Start the Tokio runtime
         tokio::spawn(server);
+
+        Ok(())
     }
 
     pub fn serve_sock(socket: TcpStream, mgr: Arc<ReqMgr>) {
@@ -118,7 +133,7 @@ impl Server {
         // send future
         let send_fut = sink.send_all(rx.map_err(|e| {
             error!("[Server]sink send_all failed:{:?}", e);
-            Error::new(ErrorKind::Other, "")
+            std::io::Error::from(std::io::ErrorKind::Other)
         }));
 
         let send_fut = send_fut.and_then(move |_| {
@@ -167,5 +182,15 @@ impl Server {
             });
 
         tokio::spawn(receive_fut);
+    }
+
+    fn save_listener_trigger(&self, trigger: Trigger) {
+        let mut t = self.listener_trigger.lock();
+        *t = Some(trigger);
+    }
+
+    pub fn stop(&self) {
+        let mut t = self.listener_trigger.lock();
+        *t = None;
     }
 }

@@ -9,11 +9,11 @@ use futures::sync::mpsc::UnboundedSender;
 use tokio_tungstenite::stream::PeerAddr;
 use url;
 
-use log::{debug, error};
+use log::{debug, error, info};
 
 pub type TxType = UnboundedSender<(bytes::Bytes, std::net::SocketAddr)>;
 
-pub fn connect(mgr: &Arc<Forwarder>, index: usize, udp_tx: Option<TxType>) {
+pub fn connect(mgr: &Arc<Forwarder>, index: usize, udp_tx:TxType) {
     let relay_domain = &mgr.relay_domain;
     let relay_port = mgr.relay_port;
     let ws_url = &mgr.dns_tun_url;
@@ -24,7 +24,7 @@ pub fn connect(mgr: &Arc<Forwarder>, index: usize, udp_tx: Option<TxType>) {
 
     // TODO: need to specify address and port
     let client = ws_connect_async(relay_domain, relay_port, url)
-        .and_then(move |(ws_stream, _)| {
+        .and_then(move |(ws_stream, rawfd)| {
             debug!("[dnstunbuilder]WebSocket handshake has been successfully completed");
             // let inner = ws_stream.get_inner().get_ref();
 
@@ -38,7 +38,7 @@ pub fn connect(mgr: &Arc<Forwarder>, index: usize, udp_tx: Option<TxType>) {
             // data to us.
             let (tx, rx) = futures::sync::mpsc::unbounded();
 
-            let t = Arc::new(DnsTunnel::new(tx, udp_tx, index));
+            let t = Arc::new(DnsTunnel::new(tx, rawfd, udp_tx, index));
             mgr1.on_tunnel_created(&t);
 
             // `sink` is the stream of messages going out.
@@ -66,6 +66,7 @@ pub fn connect(mgr: &Arc<Forwarder>, index: usize, udp_tx: Option<TxType>) {
                 .map_err(|_| ())
                 .select(send_fut.map(|_| ()).map_err(|_| ()))
                 .then(move |_| {
+                    info!("[dnstunbuilder] both websocket futures completed");
                     mgr1.on_tunnel_closed(index);
                     Ok(())
                 })

@@ -8,7 +8,7 @@ use tokio;
 use tokio_tungstenite::stream::PeerAddr;
 use url;
 
-use log::{debug, error};
+use log::{debug, error, info};
 
 pub fn connect(mgr: &Arc<TunMgr>, index: usize) {
     let relay_domain = &mgr.relay_domain;
@@ -21,7 +21,7 @@ pub fn connect(mgr: &Arc<TunMgr>, index: usize) {
     let tunnel_req_cap = mgr.tunnel_req_cap;
     // TODO: need to specify address and port
     let client = ws_connect_async(relay_domain, relay_port, url)
-        .and_then(move |(ws_stream, _)| {
+        .and_then(move |(ws_stream, rawfd)| {
             debug!("[tunbuilder]WebSocket handshake has been successfully completed");
             // let inner = ws_stream.get_inner().get_ref();
 
@@ -34,8 +34,7 @@ pub fn connect(mgr: &Arc<TunMgr>, index: usize) {
             // send us messages. Then register our address with the stream to send
             // data to us.
             let (tx, rx) = futures::sync::mpsc::unbounded();
-
-            let t = Arc::new(Tunnel::new(tx, index, tunnel_req_cap));
+            let t = Arc::new(Tunnel::new(tx, rawfd, index, tunnel_req_cap));
             mgr1.on_tunnel_created(&t);
 
             // `sink` is the stream of messages going out.
@@ -63,6 +62,7 @@ pub fn connect(mgr: &Arc<TunMgr>, index: usize) {
                 .map_err(|_| ())
                 .select(send_fut.map(|_| ()).map_err(|_| ()))
                 .then(move |_| {
+                    info!("[tunbuilder] both websocket futures completed");
                     mgr1.on_tunnel_closed(index);
                     Ok(())
                 })
