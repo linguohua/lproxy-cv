@@ -1,6 +1,6 @@
-mod auth;
 mod config;
 mod dns;
+mod htp;
 mod requests;
 mod service;
 mod tunnels;
@@ -30,21 +30,9 @@ fn main() {
     info!("try to start lproxy-cv server..");
 
     let l = lazy(|| {
-        // let (c, p) = oneshot::<bool>();
         let s = Service::new();
         let clone = s.clone();
         s.start();
-        // listen signal
-
-        // p.wait()
-        //     .map(|v| {
-        //         info!("oneshot wait return:{}", v);
-        //         ()
-        //     })
-        //     .map_err(|e| {
-        //         error!("wait failed:{}", e);
-        //         ()
-        //     })
 
         let wait_signal = Signals::new(&[signal_hook::SIGUSR1])
             .unwrap()

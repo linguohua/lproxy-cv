@@ -1,7 +1,7 @@
-use crate::auth;
 use crate::config;
 use crate::dns;
 use crate::dns::Forwarder;
+use crate::htp;
 use crate::requests;
 use crate::requests::ReqMgr;
 use crate::tunnels;
@@ -193,12 +193,34 @@ impl Service {
     fn do_auth(self: Arc<Service>) {
         info!("[Service]do_auth");
         let httpserver = config::server_url();
-        let req = auth::HTTPRequest::new(&httpserver).unwrap();
+        let req = htp::HTTPRequest::new(&httpserver).unwrap();
         let sclone = self.clone();
+        let ar = config::AuthReq {
+            uuid: "abc-efg-hij-klm".to_string(),
+        };
+
+        let arstr = ar.to_json_str();
         let fut = req
-            .exec()
+            .exec(Some(arstr))
             .and_then(move |response| {
-                debug!("[Service]do_auth http response:{:?}", response);
+                info!("[Service]do_auth http response:{:?}", response);
+
+                if response.status != 200 {
+                    // TODO: not support redirect yet!
+                    let seconds = 10;
+                    error!(
+                        "[Service]do_auth http request failed, status: {} not 200, retry {} seconds later",
+                        response.status, seconds
+                    );
+                    sclone.delay_post_instruction(30, Instruction::Auth);
+
+                    return Ok(());
+                }
+
+                if let Some(ref body) = response.body {
+                    let aresp: config::AuthResp = config::AuthResp::from_json_str(body);
+                    info!("[Service]AuthResp:{}", aresp);
+                }
 
                 // TODO: use reponse to init TunCfg
                 let cfg = config::TunCfg::new();
@@ -225,10 +247,10 @@ impl Service {
         info!("[Service]do_cfg_monitor");
 
         let httpserver = config::server_url();
-        let req = auth::HTTPRequest::new(&httpserver).unwrap();
+        let req = htp::HTTPRequest::new(&httpserver).unwrap();
         let sclone = self.clone();
         let fut = req
-            .exec()
+            .exec(None)
             .and_then(move |response| {
                 debug!("[Service]do_cfg_monitor http response:{:?}", response);
 
@@ -401,7 +423,7 @@ impl Service {
                 self.fire_instruction(Instruction::KeepAlive);
                 counter300 = counter300 + 1;
 
-                if counter300 > 0 && (counter300 % 6) == 0 {
+                if counter300 > 0 && (counter300 % 60) == 0 {
                     self.fire_instruction(Instruction::ServerCfgMonitor);
                 }
 

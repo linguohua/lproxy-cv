@@ -1,4 +1,5 @@
 pub const KEEP_ALIVE_INTERVAL: u64 = 5000;
+use std::fmt;
 
 #[derive(Debug)]
 pub struct TunCfg {
@@ -11,7 +12,7 @@ pub struct TunCfg {
 
     pub dns_udp_addr: String,
     pub dns_tun_url: String,
-    pub dns_tunnel_number:usize,
+    pub dns_tunnel_number: usize,
 }
 
 impl TunCfg {
@@ -26,11 +27,41 @@ impl TunCfg {
 
             dns_udp_addr: "127.0.0.1:5000".to_string(),
             dns_tun_url: "wss://localhost/dns".to_string(),
-            dns_tunnel_number:1,
+            dns_tunnel_number: 1,
         }
     }
 }
 
 pub fn server_url() -> String {
     "https://localhost:8000/auth".to_string()
+}
+
+pub struct AuthReq {
+    pub uuid: String,
+}
+
+impl AuthReq {
+    pub fn to_json_str(&self) -> String {
+        format!("{{\"uuid\":\"{}\"}}", self.uuid)
+    }
+}
+
+pub struct AuthResp {
+    pub token: String,
+}
+
+impl AuthResp {
+    pub fn from_json_str(s: &str) -> AuthResp {
+        use serde_json::{Value};
+        let v: Value = serde_json::from_str(s).unwrap();
+        AuthResp {
+            token: v["token"].to_string()
+        }
+    }
+}
+
+impl fmt::Display for AuthResp {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{{ AuthResp token:{} }}", self.token)
+    }
 }

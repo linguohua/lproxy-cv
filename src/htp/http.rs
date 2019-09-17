@@ -1,6 +1,7 @@
 use failure::Error;
 use futures::future::Either;
 use futures::Future;
+// use log::info;
 use native_tls::TlsConnector;
 use std::io;
 use url::Url;
@@ -12,9 +13,9 @@ pub struct HTTPRequest {
 
 #[derive(Debug)]
 pub struct HTTPResponse {
-    status: i32,
-    header: Option<String>,
-    body: Option<String>,
+    pub status: i32,
+    pub header: Option<String>,
+    pub body: Option<String>,
 }
 
 impl HTTPRequest {
@@ -25,26 +26,39 @@ impl HTTPRequest {
         })
     }
 
-    pub fn exec(&self) -> impl Future<Item = HTTPResponse, Error = Error> {
+    pub fn exec(&self, body: Option<String>) -> impl Future<Item = HTTPResponse, Error = Error> {
         if self.is_secure() {
-            Either::A(self.https_exec())
+            Either::A(self.https_exec(body))
         } else {
-            Either::B(self.http_exec())
+            Either::B(self.http_exec(body))
         }
     }
 
-    fn http_exec(&self) -> impl Future<Item = HTTPResponse, Error = Error> {
+    fn http_exec(&self, body: Option<String>) -> impl Future<Item = HTTPResponse, Error = Error> {
         let urlparsed = &self.url_parsed;
         let host = urlparsed.host_str().unwrap();
 
         let port = urlparsed.port_or_known_default().unwrap();
 
-        let head_str = self.to_http_header();
+        let content_size;
+        if let Some(ref s) = body {
+            content_size = s.len();
+        } else {
+            content_size = 0;
+        }
+
+        let head_str = self.to_http_header(content_size);
 
         let fut = tokio_dns::TcpStream::connect((host, port))
             .map_err(|e| e.into())
             .and_then(move |socket| {
-                let vec = Vec::from(head_str.as_bytes());
+                let vec;
+                if let Some(s) = body {
+                    vec = Vec::from(([head_str, s].concat()).as_bytes());
+                } else {
+                    vec = Vec::from(head_str.as_bytes());
+                }
+
                 let request = tokio_io::io::write_all(socket, vec);
                 let response =
                     request.and_then(|(socket, _)| tokio_io::io::read_to_end(socket, Vec::new()));
@@ -62,13 +76,20 @@ impl HTTPRequest {
         fut
     }
 
-    fn https_exec(&self) -> impl Future<Item = HTTPResponse, Error = Error> {
+    fn https_exec(&self, body: Option<String>) -> impl Future<Item = HTTPResponse, Error = Error> {
         let urlparsed = &self.url_parsed;
         let host = urlparsed.host_str().unwrap();
 
         let port = urlparsed.port_or_known_default().unwrap();
 
-        let head_str = self.to_http_header();
+        let content_size;
+        if let Some(ref s) = body {
+            content_size = s.len();
+        } else {
+            content_size = 0;
+        }
+
+        let head_str = self.to_http_header(content_size);
         let cx = TlsConnector::builder().build().unwrap();
         let cx = tokio_tls::TlsConnector::from(cx);
         let host_str = host.to_string();
@@ -81,7 +102,12 @@ impl HTTPRequest {
                     .map_err(|e| io::Error::new(io::ErrorKind::Other, e));
 
                 let request = tls_handshake.and_then(move |socket| {
-                    let vec = Vec::from(head_str.as_bytes());
+                    let vec;
+                    if let Some(s) = body {
+                        vec = Vec::from(([head_str, s].concat()).as_bytes());
+                    } else {
+                        vec = Vec::from(head_str.as_bytes());
+                    }
                     tokio_io::io::write_all(socket, vec)
                 });
 
@@ -105,17 +131,28 @@ impl HTTPRequest {
         self.url_parsed.scheme() == "https"
     }
 
-    fn to_http_header(&self) -> String {
+    fn to_http_header(&self, content_size: usize) -> String {
         let urlparsed = &self.url_parsed;
+        let method;
+        if content_size > 0 {
+            method = "POST";
+        } else {
+            method = "GET";
+        }
 
         let h = format!(
             "\
-             GET {} HTTP/1.0\r\n\
+             {} {} HTTP/1.0\r\n\
              Host: {}\r\n\
+             Accept-Encoding: gzip\r\n\
+             Content-Length: {} \r\n\
+             Content-Type: application/json; charset=utf-8 \r\n\
              \r\n\
              ",
+            method,
             urlparsed.path(),
-            urlparsed.host().unwrap()
+            urlparsed.host().unwrap(),
+            content_size,
         );
 
         h.to_string()
@@ -134,11 +171,27 @@ impl HTTPResponse {
             //let head_bytes = &bytes[..pos];
             let s = String::from_utf8_lossy(&bytes[..pos]).to_string();
             status = HTTPResponse::extract_status(&s);
+            let gzip = s.contains("gzip");
+
             header = Some(s);
 
             let pos = pos + 4;
-            let s = String::from_utf8_lossy(&bytes[pos..]).to_string();
-            body = Some(s);
+            let bb = &bytes[pos..];
+            let s2;
+
+            if gzip {
+                use flate2::read::GzDecoder;
+                use std::io::prelude::*;
+                let mut gz = GzDecoder::new(bb);
+                let mut s3 = String::new();
+                // info!("http response is gzip");
+                gz.read_to_string(&mut s3).unwrap();
+                s2 = s3;
+            } else {
+                s2 = String::from_utf8_lossy(bb).to_string();
+            }
+
+            body = Some(s2);
         } else {
             status = 0;
             body = None;
@@ -153,7 +206,7 @@ impl HTTPResponse {
     }
 
     fn extract_status(header_str: &str) -> i32 {
-        match header_str.find("HTTP/1.0 ") {
+        match header_str.find("HTTP/1.") {
             Some(pos1) => {
                 let pos1 = pos1 + 9;
                 let next = &header_str[pos1..];
@@ -173,20 +226,3 @@ impl HTTPResponse {
         0
     }
 }
-
-// fn url_to_sockaddr(urlparsed: &Url) -> Result<std::net::SocketAddr, Error> {
-//     let host = urlparsed
-//         .host_str()
-//         .ok_or(err_msg("no host found in url"))?;
-//     let port = urlparsed
-//         .port_or_known_default()
-//         .ok_or(err_msg("no port found in url"))?;
-
-//     let hostport_str = format!("{}:{}", host, port);
-//     let addr = hostport_str
-//         .to_socket_addrs()?
-//         .next()
-//         .ok_or(err_msg(format!("failed to do dns for host:{}", host)))?;
-
-//     Ok(addr)
-// }
