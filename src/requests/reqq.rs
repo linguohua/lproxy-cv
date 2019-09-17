@@ -2,7 +2,7 @@ use super::Request;
 
 use log::error;
 
-use log::info;
+use log::debug;
 
 pub struct Reqq {
     pub elements: Vec<Request>,
@@ -76,7 +76,7 @@ impl Reqq {
     }
 
     fn clean_req(req: &mut Request) {
-        info!("[Reqq]clean_req:{:?}", req.tag);
+        debug!("[Reqq]clean_req:{:?}", req.tag);
 
         req.tag = req.tag + 1;
         req.request_tx = None;

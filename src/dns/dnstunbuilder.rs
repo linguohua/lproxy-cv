@@ -13,7 +13,7 @@ use log::{debug, error, info};
 
 pub type TxType = UnboundedSender<(bytes::Bytes, std::net::SocketAddr)>;
 
-pub fn connect(mgr: &Arc<Forwarder>, index: usize, udp_tx:TxType) {
+pub fn connect(mgr: &Arc<Forwarder>, index: usize, udp_tx: TxType) {
     let relay_domain = &mgr.relay_domain;
     let relay_port = mgr.relay_port;
     let ws_url = &mgr.dns_tun_url;
@@ -63,6 +63,7 @@ pub fn connect(mgr: &Arc<Forwarder>, index: usize, udp_tx:TxType) {
 
             // Wait for either of futures to complete.
             receive_fut
+                .map(|_| ())
                 .map_err(|_| ())
                 .select(send_fut.map(|_| ()).map_err(|_| ()))
                 .then(move |_| {

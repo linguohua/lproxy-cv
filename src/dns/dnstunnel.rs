@@ -3,14 +3,15 @@ use byte::*;
 use crossbeam::queue::ArrayQueue;
 use futures::sync::mpsc::UnboundedSender;
 use log::{error, info};
+// use nix::unistd::close;
+use nix::sys::socket::{shutdown, Shutdown};
 use std::net::IpAddr::V4;
 use std::net::IpAddr::V6;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::os::unix::io::RawFd;
 use std::sync::atomic::{AtomicI64, AtomicU8, Ordering};
 use std::time::Instant;
 use tungstenite::protocol::Message;
-use nix::unistd::close;
-use std::os::unix::io::RawFd;
 
 type TxType = UnboundedSender<(bytes::Bytes, std::net::SocketAddr)>;
 
@@ -29,7 +30,12 @@ pub struct DnsTunnel {
 }
 
 impl DnsTunnel {
-    pub fn new(tx: UnboundedSender<Message>, rawfd:RawFd, udp_tx: TxType, idx: usize) -> DnsTunnel {
+    pub fn new(
+        tx: UnboundedSender<Message>,
+        rawfd: RawFd,
+        udp_tx: TxType,
+        idx: usize,
+    ) -> DnsTunnel {
         info!("[DnsTunnel]new Tunnel, idx:{}", idx);
         let size = 5;
         let rtt_queue = ArrayQueue::new(size);
@@ -199,10 +205,11 @@ impl DnsTunnel {
     }
 
     pub fn close_rawfd(&self) {
-        let r = close(self.rawfd);
+        info!("[DnsTunnel]close_rawfd idx:{}", self.index);
+        let r = shutdown(self.rawfd, Shutdown::Both);
         match r {
             Err(e) => {
-                info!("[Tunnel]close_rawfd failed:{}", e);
+                info!("[DnsTunnel]close_rawfd failed:{}", e);
             }
             _ => {}
         }

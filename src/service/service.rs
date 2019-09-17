@@ -29,7 +29,7 @@ enum Instruction {
     StartSubServices,
     KeepAlive,
     ServerCfgMonitor,
-    Stop,
+    Restart,
 }
 
 impl fmt::Display for Instruction {
@@ -40,7 +40,7 @@ impl fmt::Display for Instruction {
             Instruction::StartSubServices => s = "StartSubServices",
             Instruction::KeepAlive => s = "KeepAlive",
             Instruction::ServerCfgMonitor => s = "ServerCfgMonitor",
-            Instruction::Stop => s = "Stop",
+            Instruction::Restart => s = "Restart",
         }
         write!(f, "({})", s)
     }
@@ -114,6 +114,62 @@ impl Service {
         }
     }
 
+    pub fn stop(&self) {
+        info!("[Service]stop");
+        if self
+            .state
+            .compare_and_swap(STATE_RUNNING, STATE_STOPPING, Ordering::SeqCst)
+            != STATE_RUNNING
+        {
+            error!("[Service] do_restart failed, state not running");
+            return;
+        }
+
+        {
+            let mut ss = self.ss.lock();
+            // drop trigger will complete keepalive future
+            ss.keepalive_trigger = None;
+
+            // drop trigger will completed instruction future
+            ss.instruction_trigger = None;
+
+            // stop all subservices
+            match &ss.forwarder {
+                Some(s) => {
+                    s.stop();
+                    ss.forwarder = None;
+                }
+                None => {}
+            }
+
+            match &ss.reqmgr {
+                Some(s) => {
+                    s.stop();
+                    ss.reqmgr = None;
+                }
+                None => {}
+            }
+
+            match &ss.tunmgr {
+                Some(s) => {
+                    s.stop();
+                    ss.tunmgr = None;
+                }
+                None => {}
+            }
+        } // lock drop
+
+        self.restore_sys();
+
+        if self
+            .state
+            .compare_and_swap(STATE_STOPPING, STATE_STOPPED, Ordering::SeqCst)
+            != STATE_STOPPING
+        {
+            panic!("[Service] do_restart failed, state not running");
+        }
+    }
+
     fn process_instruction(self: Arc<Service>, ins: Instruction) {
         match ins {
             Instruction::Auth => {
@@ -128,8 +184,8 @@ impl Service {
             Instruction::ServerCfgMonitor => {
                 self.do_cfg_monitor();
             }
-            Instruction::Stop => {
-                self.do_stop();
+            Instruction::Restart => {
+                self.clone().do_restart();
             }
         }
     }
@@ -179,7 +235,7 @@ impl Service {
                 // TODO: use reponse to init TunCfg
                 let cfg = config::TunCfg::new();
                 sclone.save_cfg(cfg);
-                sclone.fire_instruction(Instruction::Stop);
+                sclone.fire_instruction(Instruction::Restart);
 
                 Ok(())
             })
@@ -234,50 +290,10 @@ impl Service {
         }
     }
 
-    fn do_stop(&self) {
-        info!("[Service]do_stop");
-        if self
-            .state
-            .compare_and_swap(STATE_RUNNING, STATE_STOPPING, Ordering::SeqCst)
-            != STATE_RUNNING
-        {
-            error!("[Service] do_stop failed, state not running");
-            return;
-        }
-
-        let mut ss = self.ss.lock();
-        // drop trigger will complete keepalive future
-        ss.keepalive_trigger = None;
-
-        // drop trigger will completed instruction future
-        ss.instruction_trigger = None;
-
-        // stop all subservices
-        match &ss.forwarder {
-            Some(s) => {
-                s.stop();
-                ss.forwarder = None;
-            }
-            None => {}
-        }
-
-        match &ss.reqmgr {
-            Some(s) => {
-                s.stop();
-                ss.reqmgr = None;
-            }
-            None => {}
-        }
-
-        match &ss.tunmgr {
-            Some(s) => {
-                s.stop();
-                ss.tunmgr = None;
-            }
-            None => {}
-        }
-
-        self.restore_sys();
+    fn do_restart(self: Arc<Service>) {
+        info!("[Service]do_restart");
+        self.stop();
+        self.clone().start();
     }
 
     fn save_tx(&self, tx: Option<TxType>) {
@@ -310,7 +326,9 @@ impl Service {
                     error!("[Service]fire_instruction failed:{}", e);
                 }
             }
-            None => {}
+            None => {
+                error!("[Service]fire_instruction failed: no tx");
+            }
         }
     }
 
@@ -383,7 +401,7 @@ impl Service {
                 self.fire_instruction(Instruction::KeepAlive);
                 counter300 = counter300 + 1;
 
-                if counter300 > 0 && (counter300 % 60) == 0 {
+                if counter300 > 0 && (counter300 % 6) == 0 {
                     self.fire_instruction(Instruction::ServerCfgMonitor);
                 }
 

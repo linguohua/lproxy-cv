@@ -1,4 +1,3 @@
-use std::os::unix::io::RawFd;
 use super::Cmd;
 use super::THeader;
 use crate::config::KEEP_ALIVE_INTERVAL;
@@ -10,11 +9,13 @@ use bytes::Bytes;
 use crossbeam::queue::ArrayQueue;
 use futures::sync::mpsc::UnboundedSender;
 use log::{error, info};
+// use nix::unistd::close;
+use nix::sys::socket::{shutdown, Shutdown};
 use parking_lot::Mutex;
+use std::os::unix::io::RawFd;
 use std::sync::atomic::{AtomicI64, AtomicU16, AtomicU8, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
-use nix::unistd::close;
 
 use tungstenite::protocol::Message;
 
@@ -36,7 +37,7 @@ pub struct Tunnel {
 }
 
 impl Tunnel {
-    pub fn new(tx: UnboundedSender<Message>, rawfd:RawFd, idx: usize, cap: usize) -> Tunnel {
+    pub fn new(tx: UnboundedSender<Message>, rawfd: RawFd, idx: usize, cap: usize) -> Tunnel {
         info!("[Tunnel]new Tunnel, idx:{}", idx);
         let size = 5;
         let rtt_queue = ArrayQueue::new(size);
@@ -355,10 +356,13 @@ impl Tunnel {
     }
 
     pub fn close_rawfd(&self) {
-        let r = close(self.rawfd);
+        info!("[Tunnel]close_rawfd, idx:{}", self.index);
+        let r = shutdown(self.rawfd, Shutdown::Both);
         match r {
-            Err(e) => {info!("[Tunnel]close_rawfd failed:{}", e);},
-            _ => {},
+            Err(e) => {
+                info!("[Tunnel]close_rawfd failed:{}", e);
+            }
+            _ => {}
         }
     }
 }

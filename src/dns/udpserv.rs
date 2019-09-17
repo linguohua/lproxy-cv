@@ -57,14 +57,14 @@ impl UdpServer {
                 if forwarder1.on_dns_udp_msg(&message, &addr) {
                     Ok(())
                 } else {
-                    Err(std::io::Error::from(std::io::ErrorKind::NotConnected))
+                    Err(std::io::Error::from(std::io::ErrorKind::Other))
                 }
             });
 
         // Wait for both futures to complete.
         let receive_fut = receive_fut
             .map_err(|_| ())
-            .join(send_fut.map_err(|_| ()))
+            .select(send_fut.map(|_| ()).map_err(|_| ()))
             .then(move |_| {
                 info!("[UdpServer] udp both future completed");
                 forwarder2.on_dns_udp_closed();

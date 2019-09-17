@@ -59,6 +59,7 @@ pub fn connect(mgr: &Arc<TunMgr>, index: usize) {
 
             // Wait for either of futures to complete.
             receive_fut
+                .map(|_| ())
                 .map_err(|_| ())
                 .select(send_fut.map(|_| ()).map_err(|_| ()))
                 .then(move |_| {
