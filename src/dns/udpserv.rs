@@ -1,35 +1,37 @@
 use super::Forwarder;
 use super::TxType;
+use failure::Error;
 use log::{error, info};
-use parking_lot::Mutex;
 use std::net::SocketAddr;
-use std::sync::Arc;
+use std::result::Result;
 use stream_cancel::{StreamExt, Trigger, Tripwire};
 use tokio::net::{UdpFramed, UdpSocket};
 use tokio::prelude::*;
+use tokio::runtime::current_thread;
 use tokio_codec::BytesCodec;
 
-use failure::Error;
-use std::result::Result;
+use std::cell::RefCell;
+use std::rc::Rc;
+
+type LongLive = Rc<RefCell<UdpServer>>;
+type ForwarderType = Rc<RefCell<Forwarder>>;
 
 pub struct UdpServer {
     listen_addr: String,
-    // TODO: log request count
-    tx: Mutex<(Option<TxType>, Option<Trigger>)>,
+    tx: (Option<TxType>, Option<Trigger>),
 }
 
 impl UdpServer {
-    pub fn new(addr: &str) -> Arc<UdpServer> {
+    pub fn new(addr: &str) -> LongLive {
         info!("[UdpServer]new server, addr:{}", addr);
-        Arc::new(UdpServer {
+        Rc::new(RefCell::new(UdpServer {
             listen_addr: addr.to_string(),
-            tx: Mutex::new((None, None)),
-        })
+            tx: (None, None),
+        }))
     }
 
-    pub fn start(self: Arc<UdpServer>, forward: &Arc<Forwarder>) -> Result<(), Error> {
+    pub fn start(&mut self, fw: &Forwarder, forward: ForwarderType) -> Result<(), Error> {
         let listen_addr = &self.listen_addr;
-
         let addr: SocketAddr = listen_addr.parse().map_err(|e| Error::from(e))?;
         let a = UdpSocket::bind(&addr).map_err(|e| Error::from(e))?;
 
@@ -42,7 +44,7 @@ impl UdpServer {
 
         self.set_tx(tx, trigger);
 
-        forward.clone().on_dns_udp_created();
+        fw.on_dns_udp_created(self, forward);
 
         // send future
         let send_fut = a_sink.send_all(rx.map_err(|e| {
@@ -53,8 +55,9 @@ impl UdpServer {
         let receive_fut = a_stream
             .take_until(tripwire)
             .for_each(move |(message, addr)| {
+                let rf = forwarder1.borrow();
                 // post to manager
-                if forwarder1.on_dns_udp_msg(&message, &addr) {
+                if rf.on_dns_udp_msg(&message, &addr) {
                     Ok(())
                 } else {
                     Err(std::io::Error::from(std::io::ErrorKind::Other))
@@ -67,23 +70,23 @@ impl UdpServer {
             .select(send_fut.map(|_| ()).map_err(|_| ()))
             .then(move |_| {
                 info!("[UdpServer] udp both future completed");
-                forwarder2.on_dns_udp_closed();
+                let rf = forwarder2.borrow();
+                rf.on_dns_udp_closed();
 
                 Ok(())
             });
 
-        tokio::spawn(receive_fut);
+        current_thread::spawn(receive_fut);
 
         Ok(())
     }
 
-    fn set_tx(&self, tx2: TxType, trigger: Trigger) {
-        let mut tx = self.tx.lock();
-        *tx = (Some(tx2), Some(trigger));
+    fn set_tx(&mut self, tx2: TxType, trigger: Trigger) {
+        self.tx = (Some(tx2), Some(trigger));
     }
 
     pub fn get_tx(&self) -> Option<TxType> {
-        let tx = self.tx.lock();
+        let tx = &self.tx;
         let tx = &tx.0;
         match tx {
             Some(tx) => Some(tx.clone()),
@@ -91,8 +94,7 @@ impl UdpServer {
         }
     }
 
-    pub fn stop(&self) {
-        let mut tx = self.tx.lock();
-        *tx = (None, None);
+    pub fn stop(&mut self) {
+        self.tx = (None, None);
     }
 }

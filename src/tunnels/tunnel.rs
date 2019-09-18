@@ -6,15 +6,10 @@ use crate::requests::{Request, TunStub};
 use crate::tunnels::theader::THEADER_SIZE;
 use byte::*;
 use bytes::Bytes;
-use crossbeam::queue::ArrayQueue;
 use futures::sync::mpsc::UnboundedSender;
 use log::{error, info};
-// use nix::unistd::close;
 use nix::sys::socket::{shutdown, Shutdown};
-use parking_lot::Mutex;
 use std::os::unix::io::RawFd;
-use std::sync::atomic::{AtomicI64, AtomicU16, AtomicU8, Ordering};
-use std::sync::Arc;
 use std::time::Instant;
 
 use tungstenite::protocol::Message;
@@ -23,14 +18,14 @@ pub struct Tunnel {
     pub tx: UnboundedSender<Message>,
     pub index: usize,
 
-    pub requests: Mutex<Reqq>,
+    pub requests: Reqq,
 
     pub capacity: u16,
-    rtt_queue: ArrayQueue<i64>,
-
-    rtt_sum: AtomicI64,
-    req_count: AtomicU16,
-    ping_count: AtomicU8,
+    rtt_queue: Vec<i64>,
+    rtt_index: usize,
+    rtt_sum: i64,
+    req_count: u16,
+    ping_count: u8,
 
     time: Instant,
     rawfd: RawFd,
@@ -40,29 +35,25 @@ impl Tunnel {
     pub fn new(tx: UnboundedSender<Message>, rawfd: RawFd, idx: usize, cap: usize) -> Tunnel {
         info!("[Tunnel]new Tunnel, idx:{}", idx);
         let size = 5;
-        let rtt_queue = ArrayQueue::new(size);
-        for _ in 0..size {
-            if let Err(e) = rtt_queue.push(0) {
-                panic!("[Tunnel]init rtt_queue failed:{}", e);
-            }
-        }
+        let rtt_queue = vec![0; size];
 
         let capacity = cap;
         Tunnel {
             tx: tx,
             index: idx,
-            requests: Mutex::new(Reqq::new(capacity)),
+            requests: Reqq::new(capacity),
             capacity: capacity as u16,
             rtt_queue: rtt_queue,
-            rtt_sum: AtomicI64::new(0),
-            req_count: AtomicU16::new(0),
-            ping_count: AtomicU8::new(0),
+            rtt_index:0,
+            rtt_sum: 0,
+            req_count: 0,
+            ping_count: 0,
             time: Instant::now(),
             rawfd: rawfd,
         }
     }
 
-    pub fn on_tunnel_msg(&self, msg: Message) {
+    pub fn on_tunnel_msg(&mut self, msg: Message) {
         // info!("[Tunnel]on_tunnel_msg");
         if msg.is_pong() {
             self.on_pong(msg);
@@ -113,10 +104,10 @@ impl Tunnel {
                 let req_idx = th.req_idx;
                 let req_tag = th.req_tag;
                 // TODO: extract new method
-                let reqs = &mut self.requests.lock();
+                let reqs = &mut self.requests;
                 let r = reqs.free(req_idx, req_tag);
                 if r {
-                    self.req_count.fetch_sub(1, Ordering::SeqCst);
+                    self.req_count -= 1;
                 }
             }
             _ => {
@@ -125,7 +116,7 @@ impl Tunnel {
         }
     }
 
-    fn on_pong(&self, msg: Message) {
+    fn on_pong(&mut self, msg: Message) {
         let bs = msg.into_data();
         let len = bs.len();
         if len != 8 {
@@ -134,7 +125,7 @@ impl Tunnel {
         }
 
         // reset ping count
-        self.ping_count.store(0, Ordering::SeqCst);
+        self.ping_count = 0;
 
         let offset = &mut 0;
         let timestamp = bs.read_with::<u64>(offset, LE).unwrap();
@@ -147,23 +138,22 @@ impl Tunnel {
         self.append_rtt(rtt);
     }
 
-    fn append_rtt(&self, rtt: i64) {
-        if let Ok(rtt_remove) = self.rtt_queue.pop() {
-            if let Err(e) = self.rtt_queue.push(rtt) {
-                panic!("[Tunnel]rtt_quque push failed:{}", e);
-            }
+    fn append_rtt(&mut self, rtt: i64) {
+        let rtt_remove = self.rtt_queue[self.rtt_index];
+        self.rtt_queue[self.rtt_index] = rtt;
+        let len = self.rtt_queue.len();
+        self.rtt_index = (self.rtt_index + 1)%len;
 
-            self.rtt_sum.fetch_add(rtt - rtt_remove, Ordering::SeqCst);
-        }
+        self.rtt_sum = self.rtt_sum + rtt - rtt_remove;
     }
 
     pub fn get_rtt(&self) -> i64 {
-        let rtt_sum = self.rtt_sum.load(Ordering::SeqCst);
+        let rtt_sum = self.rtt_sum;
         rtt_sum / (self.rtt_queue.len() as i64)
     }
 
     pub fn get_req_count(&self) -> u16 {
-        self.req_count.load(Ordering::SeqCst)
+        self.req_count
     }
 
     fn get_elapsed_milliseconds(&self) -> u64 {
@@ -172,7 +162,7 @@ impl Tunnel {
     }
 
     fn get_request_tx(&self, req_idx: u16, req_tag: u16) -> Option<UnboundedSender<Bytes>> {
-        let requests = &self.requests.lock();
+        let requests = &self.requests;
         let req_idx = req_idx as usize;
         if req_idx >= requests.elements.len() {
             return None;
@@ -193,8 +183,8 @@ impl Tunnel {
         None
     }
 
-    fn free_request_tx(&self, req_idx: u16, req_tag: u16) {
-        let requests = &mut self.requests.lock();
+    fn free_request_tx(&mut self, req_idx: u16, req_tag: u16) {
+        let requests = &mut self.requests;
         let req_idx = req_idx as usize;
         if req_idx >= requests.elements.len() {
             return;
@@ -210,7 +200,7 @@ impl Tunnel {
         }
     }
 
-    pub fn on_request_created(&self, req: Request) -> Option<TunStub> {
+    pub fn on_request_created(&mut self, req: Request) -> Option<TunStub> {
         info!("[Tunnel]on_request_created");
         let ip = req.ipv4_le;
         let port = req.port_le;
@@ -226,8 +216,8 @@ impl Tunnel {
         }
     }
 
-    fn on_request_created_internal(&self, req: Request) -> Option<TunStub> {
-        let reqs = &mut self.requests.lock();
+    fn on_request_created_internal(&mut self, req: Request) -> Option<TunStub> {
+        let reqs = &mut self.requests;
         let (idx, tag) = reqs.alloc(req);
         let tun_idx;
         if idx != std::u16::MAX {
@@ -237,7 +227,7 @@ impl Tunnel {
         }
 
         let tx = self.tx.clone();
-        self.req_count.fetch_add(1, Ordering::SeqCst);
+        self.req_count += 1;
 
         Some(TunStub {
             tunnel_tx: tx,
@@ -247,9 +237,9 @@ impl Tunnel {
         })
     }
 
-    pub fn on_request_closed(&self, tunstub: &Arc<TunStub>) {
+    pub fn on_request_closed(&mut self, tunstub: &TunStub) {
         info!("[Tunnel]on_request_closed, tun index:{}", self.index);
-        let reqs = &mut self.requests.lock();
+        let reqs = &mut self.requests;
         let r = reqs.free(tunstub.req_idx, tunstub.req_tag);
 
         if r {
@@ -257,14 +247,14 @@ impl Tunnel {
                 "[Tunnel]on_request_closed, tun index:{}, sub req_count by 1",
                 self.index
             );
-            self.req_count.fetch_sub(1, Ordering::SeqCst);
+            self.req_count -= 1;
             Tunnel::send_request_closed_to_server(tunstub);
         }
     }
 
-    pub fn on_closed(&self) {
+    pub fn on_closed(&mut self) {
         // free all requests
-        let reqs = &mut self.requests.lock();
+        let reqs = &mut self.requests;
         reqs.clear_all();
 
         info!(
@@ -273,8 +263,8 @@ impl Tunnel {
         );
     }
 
-    pub fn send_ping(&self) -> bool {
-        let ping_count = self.ping_count.load(Ordering::SeqCst) as i64;
+    pub fn send_ping(&mut self) -> bool {
+        let ping_count = self.ping_count;
         if ping_count > 10 {
             return true;
         }
@@ -292,10 +282,10 @@ impl Tunnel {
                 error!("[Tunnel]tunnel send_ping error:{}", e);
             }
             _ => {
-                self.ping_count.fetch_add(1, Ordering::SeqCst);
+                self.ping_count += 1;
                 if ping_count > 0 {
                     // TODO: fix accurate RTT?
-                    self.append_rtt(ping_count * (KEEP_ALIVE_INTERVAL as i64));
+                    self.append_rtt((ping_count as i64) * (KEEP_ALIVE_INTERVAL as i64));
                 }
             }
         }

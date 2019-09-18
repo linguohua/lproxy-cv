@@ -1,26 +1,27 @@
-use crate::tunnels::ws_connect_async;
-use futures::{Future, Stream};
-use std::sync::Arc;
-use tokio;
-// use tokio_tungstenite::connect_async;
 use super::DnsTunnel;
 use super::Forwarder;
+use crate::tunnels::ws_connect_async;
 use futures::sync::mpsc::UnboundedSender;
+use futures::{Future, Stream};
+use log::{debug, error, info};
+use std::cell::RefCell;
+use std::rc::Rc;
+use tokio;
+use tokio::runtime::current_thread;
 use tokio_tungstenite::stream::PeerAddr;
 use url;
 
-use log::{debug, error, info};
-
 pub type TxType = UnboundedSender<(bytes::Bytes, std::net::SocketAddr)>;
 
-pub fn connect(mgr: &Arc<Forwarder>, index: usize, udp_tx: TxType) {
-    let relay_domain = &mgr.relay_domain;
-    let relay_port = mgr.relay_port;
-    let ws_url = &mgr.dns_tun_url;
+pub fn connect(fw:&Forwarder, mgr2: Rc<RefCell<Forwarder>>, index: usize, udp_tx: TxType) {
+    let relay_domain = &fw.relay_domain;
+    let relay_port = fw.relay_port;
+    let ws_url = &fw.dns_tun_url;
     let url = url::Url::parse(&ws_url).unwrap();
 
-    let mgr1 = mgr.clone();
-    let mgr2 = mgr.clone();
+    let mgr1 = mgr2.clone();
+    let mgr3 = mgr2.clone();
+    let mgr4 = mgr2.clone();
 
     // TODO: need to specify address and port
     let client = ws_connect_async(relay_domain, relay_port, url)
@@ -38,8 +39,9 @@ pub fn connect(mgr: &Arc<Forwarder>, index: usize, udp_tx: TxType) {
             // data to us.
             let (tx, rx) = futures::sync::mpsc::unbounded();
 
-            let t = Arc::new(DnsTunnel::new(tx, rawfd, udp_tx, index));
-            mgr1.on_tunnel_created(&t);
+            let t = Rc::new(RefCell::new(DnsTunnel::new(tx, rawfd, udp_tx, index)));
+            let mut rf = mgr1.borrow_mut();
+            rf.on_tunnel_created(t.clone());
 
             // `sink` is the stream of messages going out.
             // `stream` is the stream of incoming messages.
@@ -48,7 +50,8 @@ pub fn connect(mgr: &Arc<Forwarder>, index: usize, udp_tx: TxType) {
             let receive_fut = stream.for_each(move |message| {
                 debug!("[dnstunbuilder]tunnel read a message");
                 // post to manager
-                t.on_tunnel_msg(message);
+                let mut clone = t.borrow_mut();
+                clone.on_tunnel_msg(message);
                 Ok(())
             });
 
@@ -68,7 +71,8 @@ pub fn connect(mgr: &Arc<Forwarder>, index: usize, udp_tx: TxType) {
                 .select(send_fut.map(|_| ()).map_err(|_| ()))
                 .then(move |_| {
                     info!("[dnstunbuilder] both websocket futures completed");
-                    mgr1.on_tunnel_closed(index);
+                    let mut rf = mgr3.borrow_mut();
+                    rf.on_tunnel_closed(index);
                     Ok(())
                 })
             // ok(index)
@@ -78,10 +82,11 @@ pub fn connect(mgr: &Arc<Forwarder>, index: usize, udp_tx: TxType) {
                 "[dnstunbuilder]Error during the websocket handshake occurred: {}",
                 e
             );
-            mgr2.on_tunnel_build_error(index);
+            let mut rf = mgr4.borrow_mut();
+            rf.on_tunnel_build_error(index);
 
             ()
         });
 
-    tokio::spawn(client);
+    current_thread::spawn(client);
 }

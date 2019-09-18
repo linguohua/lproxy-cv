@@ -1,16 +1,16 @@
 use super::dnstunbuilder;
 use super::DnsTunnel;
 use crate::config::TunCfg;
-use crossbeam::queue::ArrayQueue;
 use failure::Error;
-use parking_lot::Mutex;
+use std::cell::RefCell;
+use std::rc::Rc;
 use std::result::Result;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
 
 use super::UdpServer;
 use log::{error, info};
-type TunnelItem = Option<Arc<DnsTunnel>>;
+type TunnelItem = Option<Rc<RefCell<DnsTunnel>>>;
+
+type LongLife = Rc<RefCell<Forwarder>>;
 
 pub struct Forwarder {
     pub udp_addr: String,
@@ -18,16 +18,16 @@ pub struct Forwarder {
     pub relay_port: u16,
     pub dns_tun_url: String,
 
-    tunnels: Mutex<Vec<TunnelItem>>,
-    reconnect_queue: ArrayQueue<u16>,
+    tunnels: Vec<TunnelItem>,
+    reconnect_queue: Vec<u16>,
     capacity: usize,
 
-    server: Arc<UdpServer>,
-    discarded: AtomicBool,
+    server: Rc<RefCell<UdpServer>>,
+    discarded: bool,
 }
 
 impl Forwarder {
-    pub fn new(cfg: &TunCfg) -> Arc<Forwarder> {
+    pub fn new(cfg: &TunCfg) -> Rc<RefCell<Forwarder>> {
         let capacity = cfg.dns_tunnel_number;
 
         let mut vec = Vec::with_capacity(capacity);
@@ -35,50 +35,48 @@ impl Forwarder {
             vec.push(None);
         }
 
-        let m = Mutex::new(vec);
-
-        Arc::new(Forwarder {
+        Rc::new(RefCell::new(Forwarder {
             udp_addr: cfg.dns_udp_addr.to_string(),
             dns_tun_url: cfg.dns_tun_url.to_string(),
             relay_domain: cfg.relay_domain.to_string(),
             relay_port: cfg.relay_port,
-            tunnels: m,
-            reconnect_queue: ArrayQueue::new(capacity),
+            tunnels: vec,
+            reconnect_queue: Vec::with_capacity(capacity),
             capacity: capacity,
             server: UdpServer::new(&cfg.dns_udp_addr),
-            discarded: AtomicBool::new(false),
-        })
+            discarded: false,
+        }))
     }
 
-    pub fn init(self: Arc<Forwarder>) -> Result<(), Error> {
+    pub fn init(&self, s: LongLife) -> Result<(), Error> {
         info!("[Forwarder]init");
-        self.server.clone().start(&self)
+        let mut serv = self.server.borrow_mut();
+        serv.start(self, s)
     }
 
-    pub fn on_dns_udp_created(self: Arc<Forwarder>) {
-        let tx = self.server.get_tx();
+    pub fn on_dns_udp_created(&self, udps: &UdpServer, s: LongLife) {
+        let tx = udps.get_tx();
         match tx {
             Some(tx) => {
                 for n in 0..self.capacity {
                     let index = n;
-                    let mgr = self.clone();
-                    dnstunbuilder::connect(&mgr, index, tx.clone());
+                    dnstunbuilder::connect(self, s.clone(), index, tx.clone());
                 }
             }
             None => {}
         }
     }
 
-    pub fn on_tunnel_created(&self, tun: &Arc<DnsTunnel>) {
+    pub fn on_tunnel_created(&mut self, tun: Rc<RefCell<DnsTunnel>>) {
         info!("[Forwarder]on_tunnel_created");
-        if self.discarded.load(Ordering::SeqCst) != false {
+        if self.discarded != false {
             error!("[Forwarder]on_tunnel_created, forwarder is discarded, tun will be discarded");
 
             return;
         }
 
-        let index = tun.index;
-        let mut tunnels = self.tunnels.lock();
+        let index = tun.borrow().index;
+        let tunnels = &mut self.tunnels;
         let t = &tunnels[index];
 
         if t.is_some() {
@@ -90,15 +88,13 @@ impl Forwarder {
         info!("[Forwarder]tunnel created, index:{}", index);
     }
 
-    pub fn on_tunnel_closed(&self, index: usize) {
+    pub fn on_tunnel_closed(&mut self, index: usize) {
         info!("[Forwarder]on_tunnel_closed");
         let t = self.on_tunnel_closed_interal(index);
         match t {
             Some(t) => {
-                t.on_closed();
-                if let Err(e) = self.reconnect_queue.push(index as u16) {
-                    panic!("[Forwarder]reconnect_queue push failed:{}", e);
-                }
+                t.borrow().on_closed();
+                self.reconnect_queue.push(index as u16);
 
                 info!("[Forwarder]tunnel closed, index:{}", index);
             }
@@ -106,9 +102,9 @@ impl Forwarder {
         }
     }
 
-    fn on_tunnel_closed_interal(&self, index: usize) -> TunnelItem {
+    fn on_tunnel_closed_interal(&mut self, index: usize) -> TunnelItem {
         info!("[Forwarder]on_tunnel_closed_interal");
-        let mut tunnels = self.tunnels.lock();
+        let tunnels = &mut self.tunnels;
         let t = &tunnels[index];
 
         match t {
@@ -122,9 +118,9 @@ impl Forwarder {
         }
     }
 
-    pub fn on_tunnel_build_error(&self, index: usize) {
+    pub fn on_tunnel_build_error(&mut self, index: usize) {
         info!("[Forwarder]on_tunnel_build_error");
-        if self.discarded.load(Ordering::SeqCst) != false {
+        if self.discarded != false {
             error!(
                 "[Forwarder]on_tunnel_build_error, forwarder is discarded, tun will not reconnect"
             );
@@ -132,9 +128,7 @@ impl Forwarder {
             return;
         }
 
-        if let Err(e) = self.reconnect_queue.push(index as u16) {
-            panic!("[Forwarder]on_tunnel_build_error push failed:{}", e);
-        }
+        self.reconnect_queue.push(index as u16);
 
         info!(
             "[Forwarder]tunnel build error, index:{}, rebuild later",
@@ -143,10 +137,11 @@ impl Forwarder {
     }
 
     fn send_pings(&self) {
-        let tunnels = self.tunnels.lock();
+        let tunnels = &self.tunnels;
         for t in tunnels.iter() {
             match t {
                 Some(tun) => {
+                    let mut tun = tun.borrow_mut();
                     if !tun.send_ping() {
                         tun.close_rawfd();
                     }
@@ -156,14 +151,14 @@ impl Forwarder {
         }
     }
 
-    fn process_reconnect(self: Arc<Forwarder>) {
-        let tx = self.server.get_tx();
+    fn process_reconnect(&mut self, s: LongLife) {
+        let tx = self.server.borrow().get_tx();
         match tx {
             Some(tx) => loop {
-                if let Ok(index) = self.reconnect_queue.pop() {
+                if let Some(index) = self.reconnect_queue.pop() {
                     info!("[Forwarder]process_reconnect, index:{}", index);
 
-                    dnstunbuilder::connect(&self, index as usize, tx.clone());
+                    dnstunbuilder::connect(self, s.clone(), index as usize, tx.clone());
                 } else {
                     break;
                 }
@@ -177,7 +172,7 @@ impl Forwarder {
     }
 
     pub fn on_dns_udp_msg(&self, message: &bytes::BytesMut, addr: &std::net::SocketAddr) -> bool {
-        if self.discarded.load(Ordering::SeqCst) != false {
+        if self.discarded != false {
             error!("[Forwarder]on_dns_udp_msg, forwarder is discarded, request will be discarded");
 
             return false;
@@ -187,7 +182,7 @@ impl Forwarder {
         let tun = self.alloc_tunnel_for_req();
         match tun {
             Some(tun) => {
-                tun.on_dns_udp_msg(message, addr);
+                tun.borrow().on_dns_udp_msg(message, addr);
             }
             None => {
                 error!("[Forwarder]on_dns_udp_msg, no tunnel");
@@ -199,13 +194,14 @@ impl Forwarder {
 
     fn alloc_tunnel_for_req(&self) -> TunnelItem {
         info!("[Forwarder]alloc_tunnel_for_req");
-        let tunnels = self.tunnels.lock();
+        let tunnels = &self.tunnels;
         let mut tselected = None;
         let mut rtt = std::i64::MAX;
 
         for t in tunnels.iter() {
             match t {
-                Some(tun) => {
+                Some(tun2) => {
+                    let tun = tun2.borrow();
                     let rtt_tun = tun.get_rtt();
 
                     let mut selected = false;
@@ -219,7 +215,7 @@ impl Forwarder {
                     }
                     if selected {
                         rtt = rtt_tun;
-                        tselected = Some(tun.clone());
+                        tselected = Some(tun2.clone());
                     }
                 }
                 None => {}
@@ -229,34 +225,34 @@ impl Forwarder {
         tselected
     }
 
-    pub fn keepalive(self: Arc<Forwarder>) {
-        if self.discarded.load(Ordering::SeqCst) != false {
+    pub fn keepalive(&mut self, s: LongLife) {
+        if self.discarded != false {
             error!("[Forwarder]keepalive, forwarder is discarded, not do keepalive");
 
             return;
         }
 
         self.send_pings();
-        self.process_reconnect();
+        self.process_reconnect(s);
     }
 
-    pub fn stop(&self) {
-        if self
-            .discarded
-            .compare_and_swap(false, true, Ordering::SeqCst)
-            != false
-        {
+    pub fn stop(&mut self) {
+        if self.discarded != false {
             error!("[Forwarder]stop, forwarder is already discarded");
 
             return;
         }
 
-        self.server.stop();
+        self.discarded = true;
 
-        let tunnels = self.tunnels.lock();
+        let s = &self.server;
+        s.borrow_mut().stop();
+
+        let tunnels = &self.tunnels;
         for t in tunnels.iter() {
             match t {
                 Some(tun) => {
+                    let tun = tun.borrow();
                     tun.close_rawfd();
                 }
                 None => {}

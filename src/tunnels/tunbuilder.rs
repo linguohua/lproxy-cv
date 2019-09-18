@@ -2,23 +2,27 @@ use super::ws_connect_async;
 use super::TunMgr;
 use super::Tunnel;
 use futures::{Future, Stream};
-use std::sync::Arc;
 use tokio;
-// use tokio_tungstenite::connect_async;
 use tokio_tungstenite::stream::PeerAddr;
 use url;
+use std::cell::RefCell;
+use std::rc::Rc;
+use tokio::runtime::current_thread;
 
 use log::{debug, error, info};
 
-pub fn connect(mgr: &Arc<TunMgr>, index: usize) {
-    let relay_domain = &mgr.relay_domain;
-    let relay_port = mgr.relay_port;
-    let ws_url = &mgr.url;
+pub fn connect(tm: &TunMgr, mgr2: Rc<RefCell<TunMgr>>, index: usize) {
+    let relay_domain = &tm.relay_domain;
+    let relay_port = tm.relay_port;
+    let ws_url = &tm.url;
     let url = url::Url::parse(&ws_url).unwrap();
 
-    let mgr1 = mgr.clone();
-    let mgr2 = mgr.clone();
-    let tunnel_req_cap = mgr.tunnel_req_cap;
+    let mgr1 = mgr2.clone();
+    let mgr3 = mgr2.clone();
+    let mgr4 = mgr2.clone();
+
+    let tunnel_req_cap = tm.tunnel_req_cap;
+
     // TODO: need to specify address and port
     let client = ws_connect_async(relay_domain, relay_port, url)
         .and_then(move |(ws_stream, rawfd)| {
@@ -34,8 +38,9 @@ pub fn connect(mgr: &Arc<TunMgr>, index: usize) {
             // send us messages. Then register our address with the stream to send
             // data to us.
             let (tx, rx) = futures::sync::mpsc::unbounded();
-            let t = Arc::new(Tunnel::new(tx, rawfd, index, tunnel_req_cap));
-            mgr1.on_tunnel_created(&t);
+            let t = Rc::new(RefCell::new(Tunnel::new(tx, rawfd, index, tunnel_req_cap)));
+            let mut rf = mgr1.borrow_mut();
+            rf.on_tunnel_created(t.clone());
 
             // `sink` is the stream of messages going out.
             // `stream` is the stream of incoming messages.
@@ -44,7 +49,9 @@ pub fn connect(mgr: &Arc<TunMgr>, index: usize) {
             let receive_fut = stream.for_each(move |message| {
                 debug!("[tunbuilder]tunnel read a message");
                 // post to manager
-                t.on_tunnel_msg(message);
+                let mut clone = t.borrow_mut();
+                clone.on_tunnel_msg(message);
+
                 Ok(())
             });
 
@@ -64,7 +71,8 @@ pub fn connect(mgr: &Arc<TunMgr>, index: usize) {
                 .select(send_fut.map(|_| ()).map_err(|_| ()))
                 .then(move |_| {
                     info!("[tunbuilder] both websocket futures completed");
-                    mgr1.on_tunnel_closed(index);
+                    let mut rf = mgr3.borrow_mut();
+                    rf.on_tunnel_closed(index);
                     Ok(())
                 })
             // ok(index)
@@ -74,10 +82,11 @@ pub fn connect(mgr: &Arc<TunMgr>, index: usize) {
                 "[tunbuilder]Error during the websocket handshake occurred: {}",
                 e
             );
-            mgr2.on_tunnel_build_error(index);
+            let mut rf = mgr4.borrow_mut();
+            rf.on_tunnel_build_error(index);
 
             ()
         });
 
-    tokio::spawn(client);
+    current_thread::spawn(client);
 }

@@ -27,13 +27,14 @@ native-tls = "0.2.3"
 tokio-io = "0.1.12"
 tokio-tls = "0.2.1"
 log = "0.4.8"
-crossbeam = "0.7.2"
+#crossbeam = "0.7.2"
 stream-cancel = "0.4.4"
-parking_lot = "0.9.0"
+#parking_lot = "0.9.0"
 tokio-udp = "0.1.5"
 flate2 = "1.0.11"
 serde_json = "1.0.40"
 serde = {version = "1.0.101"}
+tokio-runtime = "0.0.0"
 
 [dependencies.signal-hook]
 version = "0.1.10"

@@ -1,20 +1,18 @@
 use super::tunbuilder;
 use super::Tunnel;
 use crate::config::TunCfg;
-use std::sync::atomic::{AtomicBool, Ordering};
-
 use crate::requests::{Request, TunStub};
 
-use crossbeam::queue::ArrayQueue;
 use failure::Error;
 use std::result::Result;
 
 use log::error;
 use log::info;
-use parking_lot::Mutex;
-use std::sync::Arc;
+use std::cell::RefCell;
+use std::rc::Rc;
 
-type TunnelItem = Option<Arc<Tunnel>>;
+type TunnelItem = Option<Rc<RefCell<Tunnel>>>;
+type LongLive = Rc<RefCell<TunMgr>>;
 
 pub struct TunMgr {
     pub relay_domain: String,
@@ -22,13 +20,13 @@ pub struct TunMgr {
     pub url: String,
     capacity: usize,
     pub tunnel_req_cap: usize,
-    tunnels: Mutex<Vec<TunnelItem>>,
-    reconnect_queue: ArrayQueue<u16>,
-    discarded: AtomicBool,
+    tunnels: Vec<TunnelItem>,
+    reconnect_queue: Vec<u16>,
+    discarded: bool,
 }
 
 impl TunMgr {
-    pub fn new(cfg: &TunCfg) -> Arc<TunMgr> {
+    pub fn new(cfg: &TunCfg) -> LongLive {
         info!("[TunMgr]new TunMgr, cfg:{:?}", cfg);
         let capacity = cfg.tunnel_number;
 
@@ -37,41 +35,39 @@ impl TunMgr {
             vec.push(None);
         }
 
-        let m = Mutex::new(vec);
-
-        Arc::new(TunMgr {
+        Rc::new(RefCell::new(TunMgr {
             url: cfg.websocket_url.to_string(),
             capacity: capacity,
             tunnel_req_cap: cfg.tunnel_req_cap,
-            tunnels: m,
-            reconnect_queue: ArrayQueue::new(capacity),
+            tunnels: vec,
+            reconnect_queue: Vec::with_capacity(capacity),
             relay_domain: cfg.relay_domain.to_string(),
             relay_port: cfg.relay_port,
-            discarded: AtomicBool::new(false),
-        })
+            discarded: false,
+        }))
     }
 
-    pub fn init(self: Arc<TunMgr>) -> Result<(), Error> {
+    pub fn init(&self, s: LongLive) -> Result<(), Error> {
         info!("[TunMgr]init");
         for n in 0..self.capacity {
             let index = n;
-            let mgr = self.clone();
-            tunbuilder::connect(&mgr, index);
+            let mgr = s.clone();
+            tunbuilder::connect(self, mgr, index);
         }
 
         Ok(())
     }
 
-    pub fn on_tunnel_created(&self, tun: &Arc<Tunnel>) {
+    pub fn on_tunnel_created(&mut self, tun: Rc<RefCell<Tunnel>> ) {
         info!("[TunMgr]on_tunnel_created");
-        if self.discarded.load(Ordering::SeqCst) != false {
+        if self.discarded != false {
             error!("[TunMgr]on_tunnel_created, tunmgr is discarded, tun will be discarded");
 
             return;
         }
 
-        let index = tun.index;
-        let mut tunnels = self.tunnels.lock();
+        let index = tun.borrow().index;
+        let tunnels = &mut self.tunnels;
         let t = &tunnels[index];
 
         if t.is_some() {
@@ -83,15 +79,14 @@ impl TunMgr {
         info!("[TunMgr]tunnel created, index:{}", index);
     }
 
-    pub fn on_tunnel_closed(&self, index: usize) {
+    pub fn on_tunnel_closed(&mut self, index: usize) {
         info!("[TunMgr]on_tunnel_closed");
         let t = self.on_tunnel_closed_interal(index);
         match t {
             Some(t) => {
+                let mut t = t.borrow_mut();
                 t.on_closed();
-                if let Err(e) = self.reconnect_queue.push(index as u16) {
-                    panic!("[TunMgr]reconnect_queue push failed:{}", e);
-                }
+                self.reconnect_queue.push(index as u16);
 
                 info!("[TunMgr]tunnel closed, index:{}", index);
             }
@@ -99,24 +94,22 @@ impl TunMgr {
         }
     }
 
-    pub fn on_tunnel_build_error(&self, index: usize) {
+    pub fn on_tunnel_build_error(&mut self, index: usize) {
         info!("[TunMgr]on_tunnel_build_error");
-        if self.discarded.load(Ordering::SeqCst) != false {
+        if self.discarded != false {
             error!("[TunMgr]on_tunnel_build_error, tunmgr is discarded, tun will be not reconnect");
 
             return;
         }
 
-        if let Err(e) = self.reconnect_queue.push(index as u16) {
-            panic!("[TunMgr]on_tunnel_build_error push failed:{}", e);
-        }
+        self.reconnect_queue.push(index as u16);
 
         info!("[TunMgr]tunnel build error, index:{}, rebuild later", index);
     }
 
-    fn on_tunnel_closed_interal(&self, index: usize) -> TunnelItem {
+    fn on_tunnel_closed_interal(&mut self, index: usize) -> TunnelItem {
         info!("[TunMgr]on_tunnel_closed_interal");
-        let mut tunnels = self.tunnels.lock();
+        let tunnels = &mut self.tunnels;
         let t = &tunnels[index];
 
         match t {
@@ -132,7 +125,7 @@ impl TunMgr {
 
     fn get_tunnel(&self, index: usize) -> TunnelItem {
         info!("[TunMgr]get_tunnel");
-        let tunnels = self.tunnels.lock();
+        let tunnels = &self.tunnels;
         let tun = &tunnels[index];
 
         match tun {
@@ -141,42 +134,47 @@ impl TunMgr {
         }
     }
 
-    pub fn on_request_created(&self, req: Request) -> Option<TunStub> {
+    pub fn on_request_created(&mut self, req: Request) -> Option<TunStub> {
         info!("[TunMgr]on_request_created");
-        if self.discarded.load(Ordering::SeqCst) != false {
+        if self.discarded != false {
             error!("[TunMgr]on_request_created, tunmgr is discarded, request will be discarded");
 
             return None;
         }
 
         if let Some(tun) = self.alloc_tunnel_for_req() {
+            let mut tun = tun.borrow_mut();
             tun.on_request_created(req)
         } else {
             None
         }
     }
 
-    pub fn on_request_closed(&self, tunstub: &Arc<TunStub>) {
+    pub fn on_request_closed(&mut self, tunstub: &TunStub) {
         info!("[TunMgr]on_request_closed:{:?}", tunstub);
         let tidx = tunstub.tun_idx;
         match self.get_tunnel(tidx as usize) {
-            Some(tun) => tun.on_request_closed(tunstub),
+            Some(tun) => {
+                let mut tun = tun.borrow_mut();
+                tun.on_request_closed(tunstub);
+                },
             None => {
                 error!("[TunMgr]on_request_closed:{:?}, not found", tunstub);
             }
         }
     }
 
-    fn alloc_tunnel_for_req(&self) -> TunnelItem {
+    fn alloc_tunnel_for_req(&mut self) -> TunnelItem {
         info!("[TunMgr]alloc_tunnel_for_req");
-        let tunnels = self.tunnels.lock();
+        let tunnels = &mut self.tunnels;
         let mut tselected = None;
         let mut rtt = std::i64::MAX;
         let mut req_count = std::u16::MAX;
 
         for t in tunnels.iter() {
             match t {
-                Some(tun) => {
+                Some(tun2) => {
+                    let tun = tun2.borrow();
                     let req_count_tun = tun.get_req_count();
                     // skip fulled tunnel
                     if (req_count_tun + 1) >= tun.capacity {
@@ -200,7 +198,7 @@ impl TunMgr {
                     if selected {
                         rtt = rtt_tun;
                         req_count = req_count_tun;
-                        tselected = Some(tun.clone());
+                        tselected = Some(tun2.clone());
                     }
                 }
                 None => {}
@@ -211,10 +209,11 @@ impl TunMgr {
     }
 
     fn send_pings(&self) {
-        let tunnels = self.tunnels.lock();
+        let tunnels = &self.tunnels;
         for t in tunnels.iter() {
             match t {
                 Some(tun) => {
+                    let mut tun = tun.borrow_mut();
                     if !tun.send_ping() {
                         tun.close_rawfd();
                     }
@@ -224,32 +223,32 @@ impl TunMgr {
         }
     }
 
-    fn process_reconnect(self: Arc<TunMgr>) {
+    fn process_reconnect(&mut self, s: LongLive) {
         loop {
-            if let Ok(index) = self.reconnect_queue.pop() {
+            if let Some(index) = self.reconnect_queue.pop() {
                 info!("[TunMgr]process_reconnect, index:{}", index);
 
-                tunbuilder::connect(&self, index as usize);
+                tunbuilder::connect(self, s.clone(), index as usize);
             } else {
                 break;
             }
         }
     }
 
-    pub fn keepalive(self: Arc<TunMgr>) {
-        if self.discarded.load(Ordering::SeqCst) != false {
+    pub fn keepalive(&mut self, s: LongLive) {
+        if self.discarded != false {
             error!("[TunMgr]keepalive, tunmgr is discarded, not do keepalive");
 
             return;
         }
+
         self.send_pings();
-        self.process_reconnect();
+        self.process_reconnect(s.clone());
     }
 
-    pub fn stop(&self) {
+    pub fn stop(&mut self) {
         if self
             .discarded
-            .compare_and_swap(false, true, Ordering::SeqCst)
             != false
         {
             error!("[TunMgr]stop, tunmgr is already discarded");
@@ -257,11 +256,14 @@ impl TunMgr {
             return;
         }
 
+        self.discarded = true;
+
         // close all tunnel, and forbit reconnect
-        let tunnels = self.tunnels.lock();
+        let tunnels = &self.tunnels;
         for t in tunnels.iter() {
             match t {
                 Some(tun) => {
+                    let tun = tun.borrow();
                     tun.close_rawfd();
                 }
                 None => {}

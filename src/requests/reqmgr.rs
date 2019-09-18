@@ -5,37 +5,35 @@ use crate::tunnels::TunMgr;
 use crate::tunnels::THEADER_SIZE;
 use crate::tunnels::{Cmd, THeader};
 use failure::Error;
-
 use bytes::BytesMut;
-
 use log::{error, info};
 use std::result::Result;
-use std::sync::Arc;
 use tungstenite::protocol::Message;
+use std::cell::RefCell;
+use std::rc::Rc;
 
+type LongLive = Rc<RefCell<ReqMgr>>;
 pub struct ReqMgr {
-    server: Arc<Server>,
-    tm: Arc<TunMgr>,
+    server: Rc<RefCell<Server>>,
+    tm: Rc<RefCell<TunMgr>>,
 }
 
 impl ReqMgr {
-    pub fn new(tm: &Arc<TunMgr>, cfg: &TunCfg) -> Arc<ReqMgr> {
+    pub fn new(tm: Rc<RefCell<TunMgr>>, cfg: &TunCfg) -> LongLive {
         info!("[ReqMgr]new ReqMgr, tuncfg:{:?}", cfg);
 
-        Arc::new(ReqMgr {
+        Rc::new(RefCell::new(ReqMgr {
             server: Server::new(&cfg.local_server),
-            tm: tm.clone(),
-        })
+            tm: tm,
+        }))
     }
 
-    pub fn init(self: Arc<ReqMgr>) -> Result<(), Error> {
+    pub fn init(&self, s: LongLive) -> Result<(), Error> {
         info!("[ReqMgr]init ReqMgr");
-        let s = self.server.clone();
-
-        s.start(&self)
+         self.server.borrow_mut().start(s)
     }
 
-    pub fn on_request_msg(message: BytesMut, tun: &Arc<TunStub>) -> bool {
+    pub fn on_request_msg(message: BytesMut, tun: &TunStub) -> bool {
         info!("[ReqMgr]on_request_msg, tun:{:?}", tun);
         let size = message.len();
         let hsize = THEADER_SIZE;
@@ -64,7 +62,7 @@ impl ReqMgr {
         true
     }
 
-    pub fn on_request_recv_finished(tun: &Arc<TunStub>) {
+    pub fn on_request_recv_finished(tun: &TunStub) {
         info!("[ReqMgr]on_request_recv_finished:{:?}", tun);
 
         let hsize = THEADER_SIZE;
@@ -89,19 +87,20 @@ impl ReqMgr {
         }
     }
 
-    pub fn on_request_closed(&self, tunstub: &Arc<TunStub>) {
+    pub fn on_request_closed(&self, tunstub: &TunStub) {
         info!("[ReqMgr]on_request_closed, tun:{:?}", tunstub);
         let tm = &self.tm;
-        tm.on_request_closed(tunstub)
+        tm.borrow_mut().on_request_closed(tunstub)
     }
 
     pub fn on_request_created(&self, req: super::Request) -> Option<TunStub> {
         info!("[ReqMgr]on_request_created, req:{:?}", req);
         let tm = &self.tm;
-        tm.on_request_created(req)
+        tm.borrow_mut().on_request_created(req)
     }
 
-    pub fn stop(&self) {
-        self.server.stop();
+    pub fn stop(&mut self) {
+        let mut s = self.server.borrow_mut();
+        s.stop();
     }
 }

@@ -12,6 +12,7 @@ use log::{error, info};
 use service::Service;
 use signal_hook::iterator::Signals;
 use std::env;
+use tokio::runtime::current_thread::Runtime;
 
 const VERSION: &'static str = env!("CARGO_PKG_VERSION");
 
@@ -28,11 +29,12 @@ fn main() {
     }
 
     info!("try to start lproxy-cv server..");
+    let mut rt = Runtime::new().unwrap();
+    // let handle = rt.handle();
 
     let l = lazy(|| {
         let s = Service::new();
-        let clone = s.clone();
-        s.start();
+        Service::start(s.clone());
 
         let wait_signal = Signals::new(&[signal_hook::SIGUSR1])
             .unwrap()
@@ -41,7 +43,8 @@ fn main() {
             .into_future()
             .map(move |sig| {
                 info!("got sigal:{:?}", sig.0);
-                clone.stop();
+                // Service::stop
+                s.borrow_mut().stop();
                 ()
             })
             .map_err(|e| error!("{}", e.0));
@@ -49,5 +52,6 @@ fn main() {
         wait_signal
     });
 
-    tokio::run(l);
+    rt.spawn(l);
+    rt.run().unwrap();
 }

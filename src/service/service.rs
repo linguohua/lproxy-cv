@@ -1,4 +1,5 @@
 use crate::config;
+use crate::config::KEEP_ALIVE_INTERVAL;
 use crate::dns;
 use crate::dns::Forwarder;
 use crate::htp;
@@ -6,23 +7,23 @@ use crate::requests;
 use crate::requests::ReqMgr;
 use crate::tunnels;
 use crate::tunnels::TunMgr;
-
-use crate::config::KEEP_ALIVE_INTERVAL;
 use futures::sync::mpsc::UnboundedSender;
 use log::{debug, error, info};
-use parking_lot::Mutex;
 use std::fmt;
-use std::sync::atomic::{AtomicU8, Ordering};
-use std::sync::Arc;
 use std::time::{Duration, Instant};
 use stream_cancel::{StreamExt, Trigger, Tripwire};
 use tokio::prelude::*;
+use tokio::runtime::current_thread;
 use tokio::timer::Delay;
 use tokio::timer::Interval;
 const STATE_STOPPED: u8 = 0;
 const STATE_STARTING: u8 = 1;
 const STATE_RUNNING: u8 = 2;
 const STATE_STOPPING: u8 = 3;
+use std::cell::RefCell;
+use std::rc::Rc;
+
+type LongLive = Rc<RefCell<Service>>;
 
 enum Instruction {
     Auth,
@@ -48,24 +49,20 @@ impl fmt::Display for Instruction {
 
 type TxType = UnboundedSender<Instruction>;
 
-struct SubServices {
-    pub forwarder: Option<Arc<Forwarder>>,
-    pub tunmgr: Option<Arc<TunMgr>>,
-    pub reqmgr: Option<Arc<ReqMgr>>,
-    pub ins_tx: Option<TxType>,
-    pub tuncfg: Option<config::TunCfg>,
-    pub keepalive_trigger: Option<Trigger>,
-    pub instruction_trigger: Option<Trigger>,
-}
-
 pub struct Service {
-    state: AtomicU8,
-    ss: Mutex<SubServices>,
+    state: u8,
+    forwarder: Option<Rc<RefCell<Forwarder>>>,
+    tunmgr: Option<Rc<RefCell<TunMgr>>>,
+    reqmgr: Option<Rc<RefCell<ReqMgr>>>,
+    ins_tx: Option<TxType>,
+    tuncfg: Option<config::TunCfg>,
+    keepalive_trigger: Option<Trigger>,
+    instruction_trigger: Option<Trigger>,
 }
 
 impl Service {
-    pub fn new() -> Arc<Service> {
-        let ss = SubServices {
+    pub fn new() -> LongLive {
+        Rc::new(RefCell::new(Service {
             forwarder: None,
             tunmgr: None,
             reqmgr: None,
@@ -73,30 +70,25 @@ impl Service {
             tuncfg: None,
             keepalive_trigger: None,
             instruction_trigger: None,
-        };
-
-        Arc::new(Service {
-            ss: Mutex::new(ss),
-            state: AtomicU8::new(0),
-        })
+            state: 0,
+        }))
     }
 
     // start config monitor
-    pub fn start(self: Arc<Service>) {
-        if self
-            .state
-            .compare_and_swap(STATE_STOPPED, STATE_STARTING, Ordering::SeqCst)
-            == STATE_STOPPED
-        {
+    pub fn start(s: LongLive) {
+        let mut rf = s.borrow_mut();
+        if rf.state == STATE_STOPPED {
+            rf.state = STATE_STARTING;
+
             let (tx, rx) = futures::sync::mpsc::unbounded();
             let (trigger, tripwire) = Tripwire::new();
-            self.save_instruction_trigger(trigger);
+            rf.save_instruction_trigger(trigger);
 
-            let s = self.clone();
+            let clone = s.clone();
             let fut = rx
                 .take_until(tripwire)
                 .for_each(move |ins| {
-                    s.clone().process_instruction(ins);
+                    Service::process_instruction(clone.clone(), ins);
                     Ok(())
                 })
                 .then(|_| {
@@ -105,96 +97,92 @@ impl Service {
                     Ok(())
                 });
 
-            self.save_tx(Some(tx));
-            self.fire_instruction(Instruction::Auth);
+            rf.save_tx(Some(tx));
+            rf.fire_instruction(Instruction::Auth);
 
-            tokio::spawn(fut);
+            current_thread::spawn(fut);
         } else {
             panic!("[Service] start failed, state not stopped");
         }
     }
 
-    pub fn stop(&self) {
+    pub fn stop(&mut self) {
         info!("[Service]stop");
-        if self
-            .state
-            .compare_and_swap(STATE_RUNNING, STATE_STOPPING, Ordering::SeqCst)
-            != STATE_RUNNING
-        {
+        if self.state != STATE_RUNNING {
             error!("[Service] do_restart failed, state not running");
             return;
         }
 
+        self.state = STATE_STOPPING;
+
         {
-            let mut ss = self.ss.lock();
             // drop trigger will complete keepalive future
-            ss.keepalive_trigger = None;
+            self.keepalive_trigger = None;
 
             // drop trigger will completed instruction future
-            ss.instruction_trigger = None;
+            self.instruction_trigger = None;
 
             // stop all subservices
-            match &ss.forwarder {
+            match &self.forwarder {
                 Some(s) => {
+                    let s = s.clone();
+                    let mut s = s.borrow_mut();
                     s.stop();
-                    ss.forwarder = None;
+                    self.forwarder = None;
                 }
                 None => {}
             }
 
-            match &ss.reqmgr {
+            match &self.reqmgr {
                 Some(s) => {
-                    s.stop();
-                    ss.reqmgr = None;
+                    let s = s.clone();
+                    s.borrow_mut().stop();
+                    self.reqmgr = None;
                 }
                 None => {}
             }
 
-            match &ss.tunmgr {
+            match &self.tunmgr {
                 Some(s) => {
-                    s.stop();
-                    ss.tunmgr = None;
+                    let s = s.clone();
+                    s.borrow_mut().stop();
+                    self.tunmgr = None;
                 }
                 None => {}
             }
-        } // lock drop
+        }
 
         self.restore_sys();
 
-        if self
-            .state
-            .compare_and_swap(STATE_STOPPING, STATE_STOPPED, Ordering::SeqCst)
-            != STATE_STOPPING
-        {
-            panic!("[Service] do_restart failed, state not running");
-        }
+        self.state = STATE_STOPPED;
     }
 
-    fn process_instruction(self: Arc<Service>, ins: Instruction) {
+    fn process_instruction(s: LongLive, ins: Instruction) {
         match ins {
             Instruction::Auth => {
-                self.clone().do_auth();
+                Service::do_auth(s.clone());
             }
             Instruction::StartSubServices => {
-                self.clone().do_start_subservices();
+                Service::do_start_subservices(s.clone());
             }
             Instruction::KeepAlive => {
-                self.do_keepalive();
+                let rf = s.borrow();
+                rf.do_keepalive();
             }
             Instruction::ServerCfgMonitor => {
-                self.do_cfg_monitor();
+                Service::do_cfg_monitor(s.clone());
             }
             Instruction::Restart => {
-                self.clone().do_restart();
+                Service::do_restart(s.clone());
             }
         }
     }
 
-    fn do_auth(self: Arc<Service>) {
+    fn do_auth(s: LongLive) {
         info!("[Service]do_auth");
         let httpserver = config::server_url();
         let req = htp::HTTPRequest::new(&httpserver).unwrap();
-        let sclone = self.clone();
+        let sclone = s.clone();
         let ar = config::AuthReq {
             uuid: "abc-efg-hij-klm".to_string(),
         };
@@ -212,7 +200,7 @@ impl Service {
                         "[Service]do_auth http request failed, status: {} not 200, retry {} seconds later",
                         response.status, seconds
                     );
-                    sclone.delay_post_instruction(30, Instruction::Auth);
+                    Service::delay_post_instruction(sclone.clone(), 30, Instruction::Auth);
 
                     return Ok(());
                 }
@@ -224,8 +212,9 @@ impl Service {
 
                 // TODO: use reponse to init TunCfg
                 let cfg = config::TunCfg::new();
-                sclone.save_cfg(cfg);
-                sclone.fire_instruction(Instruction::StartSubServices);
+                let mut rf = sclone.borrow_mut();
+                rf.save_cfg(cfg);
+                rf.fire_instruction(Instruction::StartSubServices);
                 Ok(())
             })
             .or_else(move |e| {
@@ -235,20 +224,20 @@ impl Service {
                     e, seconds
                 );
 
-                self.delay_post_instruction(seconds, Instruction::Auth);
+                Service::delay_post_instruction(s.clone(), seconds, Instruction::Auth);
 
                 Ok(())
             });
 
-        tokio::spawn(fut);
+        current_thread::spawn(fut);
     }
 
-    fn do_cfg_monitor(self: Arc<Service>) {
+    fn do_cfg_monitor(s: LongLive) {
         info!("[Service]do_cfg_monitor");
 
         let httpserver = config::server_url();
         let req = htp::HTTPRequest::new(&httpserver).unwrap();
-        let sclone = self.clone();
+        let sclone = s.clone();
         let fut = req
             .exec(None)
             .and_then(move |response| {
@@ -256,8 +245,9 @@ impl Service {
 
                 // TODO: use reponse to init TunCfg
                 let cfg = config::TunCfg::new();
-                sclone.save_cfg(cfg);
-                sclone.fire_instruction(Instruction::Restart);
+                let mut rf = sclone.borrow_mut();
+                rf.save_cfg(cfg);
+                rf.fire_instruction(Instruction::Restart);
 
                 Ok(())
             })
@@ -268,15 +258,15 @@ impl Service {
                     e, seconds
                 );
 
-                self.delay_post_instruction(seconds, Instruction::Auth);
+                Service::delay_post_instruction(s.clone(), seconds, Instruction::Auth);
 
                 Ok(())
             });
 
-        tokio::spawn(fut);
+        current_thread::spawn(fut);
     }
 
-    fn delay_post_instruction(self: Arc<Service>, seconds: u64, ins: Instruction) {
+    fn delay_post_instruction(s: LongLive, seconds: u64, ins: Instruction) {
         info!(
             "[Service]delay_post_instruction, seconds:{}, ins:{}",
             seconds, ins
@@ -287,7 +277,7 @@ impl Service {
         let task = Delay::new(when)
             .and_then(move |_| {
                 debug!("[Service]delay_post_instruction retry...");
-                self.fire_instruction(ins);
+                s.borrow().fire_instruction(ins);
 
                 Ok(())
             })
@@ -299,49 +289,50 @@ impl Service {
                 ()
             });
 
-        tokio::spawn(task);
+        current_thread::spawn(task);
     }
 
-    fn do_start_subservices(self: Arc<Service>) {
+    fn do_start_subservices(s: LongLive) {
         info!("[Service]do_start_subservices");
-        if self.start_subservices() {
-            self.start_keepalive_timer();
+        let good;
+        {
+            let mut rf = s.borrow_mut();
+            good = rf.start_subservices();
+        }
+
+        if good {
+            Service::start_keepalive_timer(s.clone());
         } else {
             // re-auth
-            self.delay_post_instruction(5, Instruction::Auth);
+            Service::delay_post_instruction(s.clone(), 5, Instruction::Auth);
         }
     }
 
-    fn do_restart(self: Arc<Service>) {
+    fn do_restart(s: LongLive) {
         info!("[Service]do_restart");
-        self.stop();
-        self.clone().start();
+        s.borrow_mut().stop();
+        Service::start(s.clone());
     }
 
-    fn save_tx(&self, tx: Option<TxType>) {
-        let mut ss = self.ss.lock();
-        ss.ins_tx = tx;
+    fn save_tx(&mut self, tx: Option<TxType>) {
+        self.ins_tx = tx;
     }
 
-    fn save_cfg(&self, cfg: config::TunCfg) {
-        let mut ss = self.ss.lock();
-        ss.tuncfg = Some(cfg);
+    fn save_cfg(&mut self, cfg: config::TunCfg) {
+        self.tuncfg = Some(cfg);
     }
 
-    fn save_keepalive_trigger(&self, trigger: Trigger) {
-        let mut ss = self.ss.lock();
-        ss.keepalive_trigger = Some(trigger);
+    fn save_keepalive_trigger(&mut self, trigger: Trigger) {
+        self.keepalive_trigger = Some(trigger);
     }
 
-    fn save_instruction_trigger(&self, trigger: Trigger) {
-        let mut ss = self.ss.lock();
-        ss.instruction_trigger = Some(trigger);
+    fn save_instruction_trigger(&mut self, trigger: Trigger) {
+        self.instruction_trigger = Some(trigger);
     }
 
     fn fire_instruction(&self, ins: Instruction) {
         debug!("[Service]fire_instruction, ins:{}", ins);
-        let ss = self.ss.lock();
-        let tx = &ss.ins_tx;
+        let tx = &self.ins_tx;
         match tx.as_ref() {
             Some(ref tx) => {
                 if let Err(e) = tx.unbounded_send(ins) {
@@ -354,48 +345,45 @@ impl Service {
         }
     }
 
-    fn start_subservices(&self) -> bool {
+    fn start_subservices(&mut self) -> bool {
         info!("[Service]start_subservices");
-        let mut ss = self.ss.lock();
-        let cfg = ss.tuncfg.as_ref().unwrap();
+        let cfg = self.tuncfg.as_ref().unwrap();
         let tunmgr = tunnels::TunMgr::new(cfg);
-        let reqmgr = requests::ReqMgr::new(&tunmgr, cfg);
+        let reqmgr = requests::ReqMgr::new(tunmgr.clone(), cfg);
         let forwarder = dns::Forwarder::new(cfg);
 
-        if let Err(e) = forwarder.clone().init() {
+        if let Err(e) = forwarder.borrow_mut().init(forwarder.clone()) {
             error!("[Service]forwarder start failed:{}", e);
             return false;
         }
 
-        if let Err(e) = reqmgr.clone().init() {
+        if let Err(e) = reqmgr.borrow_mut().init(reqmgr.clone()) {
             error!("[Service]reqmgr start failed:{}", e);
-            forwarder.stop();
+            forwarder.borrow_mut().stop();
             return false;
         }
 
-        if let Err(e) = tunmgr.clone().init() {
+        if let Err(e) = tunmgr.borrow_mut().init(tunmgr.clone()) {
             error!("[Service]tunmgr start failed:{}", e);
-            forwarder.stop();
-            reqmgr.stop();
+            forwarder.borrow_mut().stop();
+            reqmgr.borrow_mut().stop();
 
             return false;
         }
-
-        self.config_sys();
 
         // save sub-services
-        ss.forwarder = Some(forwarder);
-        ss.tunmgr = Some(tunmgr);
-        ss.reqmgr = Some(reqmgr);
+        self.forwarder = Some(forwarder);
+        self.tunmgr = Some(tunmgr);
+        self.reqmgr = Some(reqmgr);
 
         // change state to running
-        if self
-            .state
-            .compare_and_swap(STATE_STARTING, STATE_RUNNING, Ordering::SeqCst)
-            != STATE_STARTING
-        {
+        if self.state != STATE_STARTING {
             panic!("[Service] start_subservice failed, state not STARTING");
         }
+
+        self.state = STATE_RUNNING;
+
+        self.config_sys();
 
         true
     }
@@ -408,23 +396,27 @@ impl Service {
         info!("[Service]restore_sys");
     }
 
-    fn start_keepalive_timer(self: Arc<Service>) {
+    fn start_keepalive_timer(s: LongLive) {
         info!("[Service]start_keepalive_timer");
+        let clone = s.clone();
+        let mut rf2 = s.borrow_mut();
         let mut counter300 = 0;
 
         let (trigger, tripwire) = Tripwire::new();
-        self.save_keepalive_trigger(trigger);
+        rf2.save_keepalive_trigger(trigger);
 
         // tokio timer, every 3 seconds
         let task = Interval::new(Instant::now(), Duration::from_millis(KEEP_ALIVE_INTERVAL))
             .take_until(tripwire)
             .for_each(move |instant| {
                 debug!("[Service]keepalive timer fire; instant={:?}", instant);
-                self.fire_instruction(Instruction::KeepAlive);
+
+                let rf = clone.borrow_mut();
+                rf.fire_instruction(Instruction::KeepAlive);
                 counter300 = counter300 + 1;
 
                 if counter300 > 0 && (counter300 % 60) == 0 {
-                    self.fire_instruction(Instruction::ServerCfgMonitor);
+                    rf.fire_instruction(Instruction::ServerCfgMonitor);
                 }
 
                 Ok(())
@@ -440,25 +432,24 @@ impl Service {
                 Ok(())
             });;
 
-        tokio::spawn(task);
+        current_thread::spawn(task);
     }
 
     fn do_keepalive(&self) {
         debug!("[Service]do_keepalive");
-        let ss = self.ss.lock();
-        let forwarder = &ss.forwarder;
-        let tunmgr = &ss.tunmgr;
+        let forwarder = &self.forwarder;
+        let tunmgr = &self.tunmgr;
 
         match forwarder.as_ref() {
             Some(f) => {
-                f.clone().keepalive();
+                f.borrow_mut().keepalive(f.clone());
             }
             None => {}
         }
 
         match tunmgr.as_ref() {
             Some(t) => {
-                t.clone().keepalive();
+                t.borrow_mut().keepalive(t.clone());
             }
             None => {}
         }

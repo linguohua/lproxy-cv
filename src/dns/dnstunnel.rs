@@ -1,15 +1,12 @@
 use crate::config::KEEP_ALIVE_INTERVAL;
 use byte::*;
-use crossbeam::queue::ArrayQueue;
 use futures::sync::mpsc::UnboundedSender;
 use log::{error, info};
-// use nix::unistd::close;
 use nix::sys::socket::{shutdown, Shutdown};
 use std::net::IpAddr::V4;
 use std::net::IpAddr::V6;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::os::unix::io::RawFd;
-use std::sync::atomic::{AtomicI64, AtomicU8, Ordering};
 use std::time::Instant;
 use tungstenite::protocol::Message;
 
@@ -19,10 +16,11 @@ pub struct DnsTunnel {
     pub tx: UnboundedSender<Message>,
     pub index: usize,
 
-    rtt_queue: ArrayQueue<i64>,
-    rtt_sum: AtomicI64,
+    rtt_queue: Vec<i64>,
+    rtt_index: usize,
+    rtt_sum: i64,
 
-    ping_count: AtomicU8,
+    ping_count: u8,
     time: Instant,
 
     udp_tx: Option<TxType>,
@@ -38,26 +36,21 @@ impl DnsTunnel {
     ) -> DnsTunnel {
         info!("[DnsTunnel]new Tunnel, idx:{}", idx);
         let size = 5;
-        let rtt_queue = ArrayQueue::new(size);
-        for _ in 0..size {
-            if let Err(e) = rtt_queue.push(0) {
-                panic!("[DnsTunnel]init rtt_queue failed:{}", e);
-            }
-        }
-
+        let rtt_queue = vec![0; size];
         DnsTunnel {
             tx: tx,
             index: idx,
             rtt_queue: rtt_queue,
-            rtt_sum: AtomicI64::new(0),
-            ping_count: AtomicU8::new(0),
+            rtt_index:0,
+            rtt_sum: 0,
+            ping_count: 0,
             time: Instant::now(),
             udp_tx: Some(udp_tx),
             rawfd,
         }
     }
 
-    pub fn on_tunnel_msg(&self, msg: Message) {
+    pub fn on_tunnel_msg(&mut self, msg: Message) {
         if msg.is_pong() {
             self.on_pong(msg);
 
@@ -93,8 +86,8 @@ impl DnsTunnel {
         );
     }
 
-    pub fn send_ping(&self) -> bool {
-        let ping_count = self.ping_count.load(Ordering::SeqCst) as i64;
+    pub fn send_ping(&mut self) -> bool {
+        let ping_count = self.ping_count as i64;
         if ping_count > 10 {
             return true;
         }
@@ -112,7 +105,7 @@ impl DnsTunnel {
                 error!("[DnsTunnel]tunnel send_ping error:{}", e);
             }
             _ => {
-                self.ping_count.fetch_add(1, Ordering::SeqCst);
+                self.ping_count += 1;
                 if ping_count > 0 {
                     // TODO: fix accurate RTT?
                     self.append_rtt(ping_count * (KEEP_ALIVE_INTERVAL as i64));
@@ -123,7 +116,7 @@ impl DnsTunnel {
         true
     }
 
-    fn on_pong(&self, msg: Message) {
+    fn on_pong(&mut self, msg: Message) {
         let bs = msg.into_data();
         let len = bs.len();
         if len != 8 {
@@ -132,7 +125,7 @@ impl DnsTunnel {
         }
 
         // reset ping count
-        self.ping_count.store(0, Ordering::SeqCst);
+        self.ping_count = 0;
 
         let offset = &mut 0;
         let timestamp = bs.read_with::<u64>(offset, LE).unwrap();
@@ -150,18 +143,17 @@ impl DnsTunnel {
         in_ms as u64
     }
 
-    fn append_rtt(&self, rtt: i64) {
-        if let Ok(rtt_remove) = self.rtt_queue.pop() {
-            if let Err(e) = self.rtt_queue.push(rtt) {
-                panic!("[DnsTunnel]rtt_quque push failed:{}", e);
-            }
+    fn append_rtt(&mut self, rtt: i64) {
+        let rtt_remove = self.rtt_queue[self.rtt_index];
+        self.rtt_queue[self.rtt_index] = rtt;
+        let len = self.rtt_queue.len();
+        self.rtt_index = (self.rtt_index + 1)%len;
 
-            self.rtt_sum.fetch_add(rtt - rtt_remove, Ordering::SeqCst);
-        }
+        self.rtt_sum = self.rtt_sum + rtt - rtt_remove;
     }
 
     pub fn get_rtt(&self) -> i64 {
-        let rtt_sum = self.rtt_sum.load(Ordering::SeqCst);
+        let rtt_sum = self.rtt_sum;
         rtt_sum / (self.rtt_queue.len() as i64)
     }
 
