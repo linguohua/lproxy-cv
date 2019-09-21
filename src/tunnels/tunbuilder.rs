@@ -2,26 +2,26 @@ use super::ws_connect_async;
 use super::TunMgr;
 use super::Tunnel;
 use futures::{Future, Stream};
-use tokio;
-use tokio_tungstenite::stream::PeerAddr;
-use url;
+use log::{debug, error, info};
+use nix::sys::socket::{shutdown, Shutdown};
 use std::cell::RefCell;
 use std::rc::Rc;
+use tokio;
 use tokio::runtime::current_thread;
-
-use log::{debug, error, info};
+use tokio_tungstenite::stream::PeerAddr;
+use url;
 
 pub fn connect(tm: &TunMgr, mgr2: Rc<RefCell<TunMgr>>, index: usize) {
     let relay_domain = &tm.relay_domain;
     let relay_port = tm.relay_port;
     let ws_url = &tm.url;
+    let tunnel_req_cap = tm.tunnel_req_cap;
+    let ws_url = format!("{}?cap={}", ws_url, tunnel_req_cap);
     let url = url::Url::parse(&ws_url).unwrap();
 
     let mgr1 = mgr2.clone();
     let mgr3 = mgr2.clone();
     let mgr4 = mgr2.clone();
-
-    let tunnel_req_cap = tm.tunnel_req_cap;
 
     // TODO: need to specify address and port
     let client = ws_connect_async(relay_domain, relay_port, url)
@@ -40,7 +40,12 @@ pub fn connect(tm: &TunMgr, mgr2: Rc<RefCell<TunMgr>>, index: usize) {
             let (tx, rx) = futures::sync::mpsc::unbounded();
             let t = Rc::new(RefCell::new(Tunnel::new(tx, rawfd, index, tunnel_req_cap)));
             let mut rf = mgr1.borrow_mut();
-            rf.on_tunnel_created(t.clone());
+            if let Err(_) = rf.on_tunnel_created(t.clone()) {
+                // TODO: should return directly
+                if let Err(e) = shutdown(rawfd, Shutdown::Both) {
+                    error!("[tunbuilder]shutdown rawfd failed:{}", e);
+                }
+            }
 
             // `sink` is the stream of messages going out.
             // `stream` is the stream of incoming messages.

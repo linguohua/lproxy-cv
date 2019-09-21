@@ -9,12 +9,18 @@ pub struct TunStub {
     pub req_tag: u16,
 }
 
-impl fmt::Debug for TunStub {
+impl fmt::Display for TunStub {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "TunStub {{ tun_idx: {}, req_idx: {}, req_tag:{} }}",
             self.tun_idx, self.req_idx, self.req_tag
         )
+    }
+}
+
+impl fmt::Debug for TunStub {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Display::fmt(self, f)
     }
 }

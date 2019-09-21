@@ -1,4 +1,6 @@
-pub const KEEP_ALIVE_INTERVAL: u64 = 5000;
+pub const KEEP_ALIVE_INTERVAL: u64 = 15 * 1000;
+pub const CFG_MONITOR_INTERVAL: u64 = 3 * 60 * 1000;
+
 use std::fmt;
 
 #[derive(Debug)]
@@ -19,21 +21,21 @@ impl TunCfg {
     pub fn new() -> TunCfg {
         TunCfg {
             tunnel_number: 2,
-            websocket_url: "wss://localhost/tun".to_string(),
+            websocket_url: "wss://127.0.0.1/tun".to_string(),
             local_server: "127.0.0.1:5000".to_string(),
             tunnel_req_cap: 100,
             relay_domain: "127.0.0.1".to_string(),
-            relay_port: 8000,
+            relay_port: 12345,
 
             dns_udp_addr: "127.0.0.1:5000".to_string(),
-            dns_tun_url: "wss://localhost/dns".to_string(),
+            dns_tun_url: "wss://127.0.0.1/dns".to_string(),
             dns_tunnel_number: 1,
         }
     }
 }
 
 pub fn server_url() -> String {
-    "https://localhost:8000/auth".to_string()
+    "https://127.0.0.1:8000/auth".to_string()
 }
 
 pub struct AuthReq {
@@ -52,10 +54,10 @@ pub struct AuthResp {
 
 impl AuthResp {
     pub fn from_json_str(s: &str) -> AuthResp {
-        use serde_json::{Value};
+        use serde_json::Value;
         let v: Value = serde_json::from_str(s).unwrap();
         AuthResp {
-            token: v["token"].to_string()
+            token: v["token"].to_string(),
         }
     }
 }

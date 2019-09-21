@@ -1,8 +1,7 @@
 use super::Cmd;
 use super::THeader;
+use super::{Reqq, Request, TunStub};
 use crate::config::KEEP_ALIVE_INTERVAL;
-use crate::requests::Reqq;
-use crate::requests::{Request, TunStub};
 use crate::tunnels::theader::THEADER_SIZE;
 use byte::*;
 use bytes::Bytes;
@@ -44,7 +43,7 @@ impl Tunnel {
             requests: Reqq::new(capacity),
             capacity: capacity as u16,
             rtt_queue: rtt_queue,
-            rtt_index:0,
+            rtt_index: 0,
             rtt_sum: 0,
             req_count: 0,
             ping_count: 0,
@@ -55,6 +54,10 @@ impl Tunnel {
 
     pub fn on_tunnel_msg(&mut self, msg: Message) {
         // info!("[Tunnel]on_tunnel_msg");
+        if msg.is_ping() {
+            return;
+        }
+
         if msg.is_pong() {
             self.on_pong(msg);
 
@@ -142,7 +145,7 @@ impl Tunnel {
         let rtt_remove = self.rtt_queue[self.rtt_index];
         self.rtt_queue[self.rtt_index] = rtt;
         let len = self.rtt_queue.len();
-        self.rtt_index = (self.rtt_index + 1)%len;
+        self.rtt_index = (self.rtt_index + 1) % len;
 
         self.rtt_sum = self.rtt_sum + rtt - rtt_remove;
     }

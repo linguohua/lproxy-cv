@@ -4,6 +4,7 @@ use crate::tunnels::ws_connect_async;
 use futures::sync::mpsc::UnboundedSender;
 use futures::{Future, Stream};
 use log::{debug, error, info};
+use nix::sys::socket::{shutdown, Shutdown};
 use std::cell::RefCell;
 use std::rc::Rc;
 use tokio;
@@ -13,7 +14,7 @@ use url;
 
 pub type TxType = UnboundedSender<(bytes::Bytes, std::net::SocketAddr)>;
 
-pub fn connect(fw:&Forwarder, mgr2: Rc<RefCell<Forwarder>>, index: usize, udp_tx: TxType) {
+pub fn connect(fw: &Forwarder, mgr2: Rc<RefCell<Forwarder>>, index: usize, udp_tx: TxType) {
     let relay_domain = &fw.relay_domain;
     let relay_port = fw.relay_port;
     let ws_url = &fw.dns_tun_url;
@@ -41,7 +42,12 @@ pub fn connect(fw:&Forwarder, mgr2: Rc<RefCell<Forwarder>>, index: usize, udp_tx
 
             let t = Rc::new(RefCell::new(DnsTunnel::new(tx, rawfd, udp_tx, index)));
             let mut rf = mgr1.borrow_mut();
-            rf.on_tunnel_created(t.clone());
+            if let Err(_) = rf.on_tunnel_created(t.clone()) {
+                // TODO: should return directly
+                if let Err(e) = shutdown(rawfd, Shutdown::Both) {
+                    error!("[dnstunbuilder]shutdown rawfd failed:{}", e);
+                }
+            }
 
             // `sink` is the stream of messages going out.
             // `stream` is the stream of incoming messages.
@@ -65,7 +71,7 @@ pub fn connect(fw:&Forwarder, mgr2: Rc<RefCell<Forwarder>>, index: usize, udp_tx
             let send_fut = rx.forward(sink);
 
             // Wait for either of futures to complete.
-            receive_fut
+            let fut = receive_fut
                 .map(|_| ())
                 .map_err(|_| ())
                 .select(send_fut.map(|_| ()).map_err(|_| ()))
@@ -74,7 +80,9 @@ pub fn connect(fw:&Forwarder, mgr2: Rc<RefCell<Forwarder>>, index: usize, udp_tx
                     let mut rf = mgr3.borrow_mut();
                     rf.on_tunnel_closed(index);
                     Ok(())
-                })
+                });
+
+            fut
             // ok(index)
         })
         .map_err(move |e| {

@@ -1,15 +1,17 @@
 use super::tunbuilder;
 use super::Tunnel;
-use crate::config::TunCfg;
-use crate::requests::{Request, TunStub};
-
+use super::{Request, TunStub};
+use crate::config::{TunCfg, KEEP_ALIVE_INTERVAL};
 use failure::Error;
-use std::result::Result;
-
-use log::error;
-use log::info;
+use log::{debug, error, info};
 use std::cell::RefCell;
 use std::rc::Rc;
+use std::result::Result;
+use std::time::{Duration, Instant};
+use stream_cancel::{StreamExt, Trigger, Tripwire};
+use tokio::prelude::*;
+use tokio::runtime::current_thread;
+use tokio::timer::Interval;
 
 type TunnelItem = Option<Rc<RefCell<Tunnel>>>;
 type LongLive = Rc<RefCell<TunMgr>>;
@@ -23,11 +25,12 @@ pub struct TunMgr {
     tunnels: Vec<TunnelItem>,
     reconnect_queue: Vec<u16>,
     discarded: bool,
+    keepalive_trigger: Option<Trigger>,
 }
 
 impl TunMgr {
     pub fn new(cfg: &TunCfg) -> LongLive {
-        info!("[TunMgr]new TunMgr, cfg:{:?}", cfg);
+        info!("[TunMgr]new TunMgr");
         let capacity = cfg.tunnel_number;
 
         let mut vec = Vec::with_capacity(capacity);
@@ -44,10 +47,11 @@ impl TunMgr {
             relay_domain: cfg.relay_domain.to_string(),
             relay_port: cfg.relay_port,
             discarded: false,
+            keepalive_trigger: None,
         }))
     }
 
-    pub fn init(&self, s: LongLive) -> Result<(), Error> {
+    pub fn init(&mut self, s: LongLive) -> Result<(), Error> {
         info!("[TunMgr]init");
         for n in 0..self.capacity {
             let index = n;
@@ -55,15 +59,17 @@ impl TunMgr {
             tunbuilder::connect(self, mgr, index);
         }
 
+        self.start_keepalive_timer(s);
+
         Ok(())
     }
 
-    pub fn on_tunnel_created(&mut self, tun: Rc<RefCell<Tunnel>> ) {
+    pub fn on_tunnel_created(&mut self, tun: Rc<RefCell<Tunnel>>) -> std::result::Result<(), ()> {
         info!("[TunMgr]on_tunnel_created");
         if self.discarded != false {
             error!("[TunMgr]on_tunnel_created, tunmgr is discarded, tun will be discarded");
 
-            return;
+            return Err(());
         }
 
         let index = tun.borrow().index;
@@ -77,16 +83,25 @@ impl TunMgr {
         tunnels[index] = Some(tun.clone());
 
         info!("[TunMgr]tunnel created, index:{}", index);
+
+        Ok(())
     }
 
     pub fn on_tunnel_closed(&mut self, index: usize) {
         info!("[TunMgr]on_tunnel_closed");
         let t = self.on_tunnel_closed_interal(index);
+
         match t {
             Some(t) => {
                 let mut t = t.borrow_mut();
                 t.on_closed();
-                self.reconnect_queue.push(index as u16);
+
+                if self.discarded {
+                    info!("[TunMgr]on_tunnel_closed, tunmgr is discarded, tun will be discard");
+                    return;
+                } else {
+                    self.reconnect_queue.push(index as u16);
+                }
 
                 info!("[TunMgr]tunnel closed, index:{}", index);
             }
@@ -157,7 +172,7 @@ impl TunMgr {
             Some(tun) => {
                 let mut tun = tun.borrow_mut();
                 tun.on_request_closed(tunstub);
-                },
+            }
             None => {
                 error!("[TunMgr]on_request_closed:{:?}, not found", tunstub);
             }
@@ -235,7 +250,11 @@ impl TunMgr {
         }
     }
 
-    pub fn keepalive(&mut self, s: LongLive) {
+    fn save_keepalive_trigger(&mut self, trigger: Trigger) {
+        self.keepalive_trigger = Some(trigger);
+    }
+
+    fn keepalive(&mut self, s: LongLive) {
         if self.discarded != false {
             error!("[TunMgr]keepalive, tunmgr is discarded, not do keepalive");
 
@@ -247,16 +266,14 @@ impl TunMgr {
     }
 
     pub fn stop(&mut self) {
-        if self
-            .discarded
-            != false
-        {
+        if self.discarded != false {
             error!("[TunMgr]stop, tunmgr is already discarded");
 
             return;
         }
 
         self.discarded = true;
+        self.keepalive_trigger = None;
 
         // close all tunnel, and forbit reconnect
         let tunnels = &self.tunnels;
@@ -269,5 +286,36 @@ impl TunMgr {
                 None => {}
             }
         }
+    }
+
+    fn start_keepalive_timer(&mut self, s2: LongLive) {
+        info!("[TunMgr]start_keepalive_timer");
+        let (trigger, tripwire) = Tripwire::new();
+        self.save_keepalive_trigger(trigger);
+
+        // tokio timer, every 3 seconds
+        let task = Interval::new(Instant::now(), Duration::from_millis(KEEP_ALIVE_INTERVAL))
+            .skip(1)
+            .take_until(tripwire)
+            .for_each(move |instant| {
+                debug!("[TunMgr]keepalive timer fire; instant={:?}", instant);
+
+                let mut rf = s2.borrow_mut();
+                rf.keepalive(s2.clone());
+
+                Ok(())
+            })
+            .map_err(|e| {
+                error!(
+                    "[TunMgr]start_keepalive_timer interval errored; err={:?}",
+                    e
+                )
+            })
+            .then(|_| {
+                info!("[TunMgr] keepalive timer future completed");
+                Ok(())
+            });;
+
+        current_thread::spawn(task);
     }
 }

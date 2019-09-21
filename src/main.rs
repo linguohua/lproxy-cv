@@ -34,7 +34,7 @@ fn main() {
 
     let l = lazy(|| {
         let s = Service::new();
-        Service::start(s.clone());
+        s.borrow_mut().start(s.clone());
 
         let wait_signal = Signals::new(&[signal_hook::SIGUSR1])
             .unwrap()

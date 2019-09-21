@@ -1,13 +1,17 @@
 use super::dnstunbuilder;
 use super::DnsTunnel;
-use crate::config::TunCfg;
+use super::UdpServer;
+use crate::config::{TunCfg, KEEP_ALIVE_INTERVAL};
 use failure::Error;
+use log::{debug, error, info};
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::result::Result;
-
-use super::UdpServer;
-use log::{error, info};
+use std::time::{Duration, Instant};
+use stream_cancel::{StreamExt, Trigger, Tripwire};
+use tokio::prelude::*;
+use tokio::runtime::current_thread;
+use tokio::timer::Interval;
 type TunnelItem = Option<Rc<RefCell<DnsTunnel>>>;
 
 type LongLife = Rc<RefCell<Forwarder>>;
@@ -24,6 +28,7 @@ pub struct Forwarder {
 
     server: Rc<RefCell<UdpServer>>,
     discarded: bool,
+    keepalive_trigger: Option<Trigger>,
 }
 
 impl Forwarder {
@@ -45,11 +50,14 @@ impl Forwarder {
             capacity: capacity,
             server: UdpServer::new(&cfg.dns_udp_addr),
             discarded: false,
+            keepalive_trigger: None,
         }))
     }
 
-    pub fn init(&self, s: LongLife) -> Result<(), Error> {
+    pub fn init(&mut self, s: LongLife) -> Result<(), Error> {
         info!("[Forwarder]init");
+        self.start_keepalive_timer(s.clone());
+
         let mut serv = self.server.borrow_mut();
         serv.start(self, s)
     }
@@ -67,12 +75,15 @@ impl Forwarder {
         }
     }
 
-    pub fn on_tunnel_created(&mut self, tun: Rc<RefCell<DnsTunnel>>) {
+    pub fn on_tunnel_created(
+        &mut self,
+        tun: Rc<RefCell<DnsTunnel>>,
+    ) -> std::result::Result<(), ()> {
         info!("[Forwarder]on_tunnel_created");
         if self.discarded != false {
             error!("[Forwarder]on_tunnel_created, forwarder is discarded, tun will be discarded");
 
-            return;
+            return Err(());
         }
 
         let index = tun.borrow().index;
@@ -86,6 +97,8 @@ impl Forwarder {
         tunnels[index] = Some(tun.clone());
 
         info!("[Forwarder]tunnel created, index:{}", index);
+
+        Ok(())
     }
 
     pub fn on_tunnel_closed(&mut self, index: usize) {
@@ -225,7 +238,11 @@ impl Forwarder {
         tselected
     }
 
-    pub fn keepalive(&mut self, s: LongLife) {
+    fn save_keepalive_trigger(&mut self, trigger: Trigger) {
+        self.keepalive_trigger = Some(trigger);
+    }
+
+    fn keepalive(&mut self, s: LongLife) {
         if self.discarded != false {
             error!("[Forwarder]keepalive, forwarder is discarded, not do keepalive");
 
@@ -244,7 +261,7 @@ impl Forwarder {
         }
 
         self.discarded = true;
-
+        self.keepalive_trigger = None;
         let s = &self.server;
         s.borrow_mut().stop();
 
@@ -258,5 +275,36 @@ impl Forwarder {
                 None => {}
             }
         }
+    }
+
+    fn start_keepalive_timer(&mut self, s2: LongLife) {
+        info!("[Forwarder]start_keepalive_timer");
+        let (trigger, tripwire) = Tripwire::new();
+        self.save_keepalive_trigger(trigger);
+
+        // tokio timer, every 3 seconds
+        let task = Interval::new(Instant::now(), Duration::from_millis(KEEP_ALIVE_INTERVAL))
+            .skip(1)
+            .take_until(tripwire)
+            .for_each(move |instant| {
+                debug!("[Forwarder]keepalive timer fire; instant={:?}", instant);
+
+                let mut rf = s2.borrow_mut();
+                rf.keepalive(s2.clone());
+
+                Ok(())
+            })
+            .map_err(|e| {
+                error!(
+                    "[Forwarder]start_keepalive_timer interval errored; err={:?}",
+                    e
+                )
+            })
+            .then(|_| {
+                info!("[Forwarder] keepalive timer future completed");
+                Ok(())
+            });;
+
+        current_thread::spawn(task);
     }
 }

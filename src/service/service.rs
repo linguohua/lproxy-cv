@@ -1,12 +1,5 @@
-use crate::config;
-use crate::config::KEEP_ALIVE_INTERVAL;
-use crate::dns;
-use crate::dns::Forwarder;
+use crate::config::{self, CFG_MONITOR_INTERVAL};
 use crate::htp;
-use crate::requests;
-use crate::requests::ReqMgr;
-use crate::tunnels;
-use crate::tunnels::TunMgr;
 use futures::sync::mpsc::UnboundedSender;
 use log::{debug, error, info};
 use std::fmt;
@@ -14,12 +7,12 @@ use std::time::{Duration, Instant};
 use stream_cancel::{StreamExt, Trigger, Tripwire};
 use tokio::prelude::*;
 use tokio::runtime::current_thread;
-use tokio::timer::Delay;
-use tokio::timer::Interval;
+use tokio::timer::{Delay, Interval};
 const STATE_STOPPED: u8 = 0;
 const STATE_STARTING: u8 = 1;
 const STATE_RUNNING: u8 = 2;
 const STATE_STOPPING: u8 = 3;
+use super::SubServiceCtl;
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -28,7 +21,6 @@ type LongLive = Rc<RefCell<Service>>;
 enum Instruction {
     Auth,
     StartSubServices,
-    KeepAlive,
     ServerCfgMonitor,
     Restart,
 }
@@ -39,7 +31,6 @@ impl fmt::Display for Instruction {
         match self {
             Instruction::Auth => s = "Auth",
             Instruction::StartSubServices => s = "StartSubServices",
-            Instruction::KeepAlive => s = "KeepAlive",
             Instruction::ServerCfgMonitor => s = "ServerCfgMonitor",
             Instruction::Restart => s = "Restart",
         }
@@ -51,38 +42,33 @@ type TxType = UnboundedSender<Instruction>;
 
 pub struct Service {
     state: u8,
-    forwarder: Option<Rc<RefCell<Forwarder>>>,
-    tunmgr: Option<Rc<RefCell<TunMgr>>>,
-    reqmgr: Option<Rc<RefCell<ReqMgr>>>,
+    subservices: Vec<SubServiceCtl>,
     ins_tx: Option<TxType>,
-    tuncfg: Option<config::TunCfg>,
-    keepalive_trigger: Option<Trigger>,
+    tuncfg: Option<std::sync::Arc<config::TunCfg>>,
+    monitor_trigger: Option<Trigger>,
     instruction_trigger: Option<Trigger>,
 }
 
 impl Service {
     pub fn new() -> LongLive {
         Rc::new(RefCell::new(Service {
-            forwarder: None,
-            tunmgr: None,
-            reqmgr: None,
+            subservices: Vec::new(),
             ins_tx: None,
             tuncfg: None,
-            keepalive_trigger: None,
+            monitor_trigger: None,
             instruction_trigger: None,
             state: 0,
         }))
     }
 
     // start config monitor
-    pub fn start(s: LongLive) {
-        let mut rf = s.borrow_mut();
-        if rf.state == STATE_STOPPED {
-            rf.state = STATE_STARTING;
+    pub fn start(&mut self, s: LongLive) {
+        if self.state == STATE_STOPPED {
+            self.state = STATE_STARTING;
 
             let (tx, rx) = futures::sync::mpsc::unbounded();
             let (trigger, tripwire) = Tripwire::new();
-            rf.save_instruction_trigger(trigger);
+            self.save_instruction_trigger(trigger);
 
             let clone = s.clone();
             let fut = rx
@@ -97,8 +83,8 @@ impl Service {
                     Ok(())
                 });
 
-            rf.save_tx(Some(tx));
-            rf.fire_instruction(Instruction::Auth);
+            self.save_tx(Some(tx));
+            self.fire_instruction(Instruction::Auth);
 
             current_thread::spawn(fut);
         } else {
@@ -115,42 +101,15 @@ impl Service {
 
         self.state = STATE_STOPPING;
 
-        {
-            // drop trigger will complete keepalive future
-            self.keepalive_trigger = None;
+        // drop trigger will complete monitor future
+        self.monitor_trigger = None;
 
-            // drop trigger will completed instruction future
-            self.instruction_trigger = None;
+        // drop trigger will completed instruction future
+        self.instruction_trigger = None;
 
-            // stop all subservices
-            match &self.forwarder {
-                Some(s) => {
-                    let s = s.clone();
-                    let mut s = s.borrow_mut();
-                    s.stop();
-                    self.forwarder = None;
-                }
-                None => {}
-            }
+        super::cleanup_subservices(&mut self.subservices);
 
-            match &self.reqmgr {
-                Some(s) => {
-                    let s = s.clone();
-                    s.borrow_mut().stop();
-                    self.reqmgr = None;
-                }
-                None => {}
-            }
-
-            match &self.tunmgr {
-                Some(s) => {
-                    let s = s.clone();
-                    s.borrow_mut().stop();
-                    self.tunmgr = None;
-                }
-                None => {}
-            }
-        }
+        self.subservices.clear();
 
         self.restore_sys();
 
@@ -164,10 +123,6 @@ impl Service {
             }
             Instruction::StartSubServices => {
                 Service::do_start_subservices(s.clone());
-            }
-            Instruction::KeepAlive => {
-                let rf = s.borrow();
-                rf.do_keepalive();
             }
             Instruction::ServerCfgMonitor => {
                 Service::do_cfg_monitor(s.clone());
@@ -294,24 +249,40 @@ impl Service {
 
     fn do_start_subservices(s: LongLive) {
         info!("[Service]do_start_subservices");
-        let good;
+        let cfg;
         {
-            let mut rf = s.borrow_mut();
-            good = rf.start_subservices();
+            cfg = s.borrow().tuncfg.as_ref().unwrap().clone();
         }
 
-        if good {
-            Service::start_keepalive_timer(s.clone());
-        } else {
-            // re-auth
-            Service::delay_post_instruction(s.clone(), 5, Instruction::Auth);
-        }
+        let clone = s.clone();
+        let clone2 = s.clone();
+        let fut = super::start_subservice(cfg)
+            .and_then(move |subservices| {
+                let s2 = &mut clone.borrow_mut();
+                let vec_subservices = &mut subservices.borrow_mut();
+                while let Some(ctl) = vec_subservices.pop() {
+                    s2.subservices.push(ctl);
+                }
+
+                s2.state = STATE_RUNNING;
+                s2.config_sys();
+
+                Service::start_monitor_timer(s2, clone.clone());
+                Ok(())
+            })
+            .or_else(|_| {
+                Service::delay_post_instruction(clone2, 5, Instruction::Auth);
+                Err(())
+            });
+
+        current_thread::spawn(fut);
     }
 
-    fn do_restart(s: LongLive) {
+    fn do_restart(s1: LongLive) {
         info!("[Service]do_restart");
-        s.borrow_mut().stop();
-        Service::start(s.clone());
+        let mut s = s1.borrow_mut();
+        s.stop();
+        s.start(s1.clone());
     }
 
     fn save_tx(&mut self, tx: Option<TxType>) {
@@ -319,11 +290,11 @@ impl Service {
     }
 
     fn save_cfg(&mut self, cfg: config::TunCfg) {
-        self.tuncfg = Some(cfg);
+        self.tuncfg = Some(std::sync::Arc::new(cfg));
     }
 
-    fn save_keepalive_trigger(&mut self, trigger: Trigger) {
-        self.keepalive_trigger = Some(trigger);
+    fn save_monitor_trigger(&mut self, trigger: Trigger) {
+        self.monitor_trigger = Some(trigger);
     }
 
     fn save_instruction_trigger(&mut self, trigger: Trigger) {
@@ -345,49 +316,6 @@ impl Service {
         }
     }
 
-    fn start_subservices(&mut self) -> bool {
-        info!("[Service]start_subservices");
-        let cfg = self.tuncfg.as_ref().unwrap();
-        let tunmgr = tunnels::TunMgr::new(cfg);
-        let reqmgr = requests::ReqMgr::new(tunmgr.clone(), cfg);
-        let forwarder = dns::Forwarder::new(cfg);
-
-        if let Err(e) = forwarder.borrow_mut().init(forwarder.clone()) {
-            error!("[Service]forwarder start failed:{}", e);
-            return false;
-        }
-
-        if let Err(e) = reqmgr.borrow_mut().init(reqmgr.clone()) {
-            error!("[Service]reqmgr start failed:{}", e);
-            forwarder.borrow_mut().stop();
-            return false;
-        }
-
-        if let Err(e) = tunmgr.borrow_mut().init(tunmgr.clone()) {
-            error!("[Service]tunmgr start failed:{}", e);
-            forwarder.borrow_mut().stop();
-            reqmgr.borrow_mut().stop();
-
-            return false;
-        }
-
-        // save sub-services
-        self.forwarder = Some(forwarder);
-        self.tunmgr = Some(tunmgr);
-        self.reqmgr = Some(reqmgr);
-
-        // change state to running
-        if self.state != STATE_STARTING {
-            panic!("[Service] start_subservice failed, state not STARTING");
-        }
-
-        self.state = STATE_RUNNING;
-
-        self.config_sys();
-
-        true
-    }
-
     pub fn config_sys(&self) {
         info!("[Service]config_sys");
     }
@@ -396,62 +324,32 @@ impl Service {
         info!("[Service]restore_sys");
     }
 
-    fn start_keepalive_timer(s: LongLive) {
-        info!("[Service]start_keepalive_timer");
-        let clone = s.clone();
-        let mut rf2 = s.borrow_mut();
-        let mut counter300 = 0;
-
+    fn start_monitor_timer(&mut self, s2: LongLive) {
+        info!("[Service]start_monitor_timer");
         let (trigger, tripwire) = Tripwire::new();
-        rf2.save_keepalive_trigger(trigger);
+        self.save_monitor_trigger(trigger);
 
         // tokio timer, every 3 seconds
-        let task = Interval::new(Instant::now(), Duration::from_millis(KEEP_ALIVE_INTERVAL))
-            .take_until(tripwire)
-            .for_each(move |instant| {
-                debug!("[Service]keepalive timer fire; instant={:?}", instant);
+        let task = Interval::new(
+            Instant::now(),
+            Duration::from_millis(CFG_MONITOR_INTERVAL),
+        )
+        .skip(1)
+        .take_until(tripwire)
+        .for_each(move |instant| {
+            debug!("[Service]monitor timer fire; instant={:?}", instant);
 
-                let rf = clone.borrow_mut();
-                rf.fire_instruction(Instruction::KeepAlive);
-                counter300 = counter300 + 1;
+            let rf = s2.borrow_mut();
+            rf.fire_instruction(Instruction::ServerCfgMonitor);
 
-                if counter300 > 0 && (counter300 % 60) == 0 {
-                    rf.fire_instruction(Instruction::ServerCfgMonitor);
-                }
-
-                Ok(())
-            })
-            .map_err(|e| {
-                error!(
-                    "[Service]start_keepalive_timer interval errored; err={:?}",
-                    e
-                )
-            })
-            .then(|_| {
-                info!("[Service] keepalive timer future completed");
-                Ok(())
-            });;
+            Ok(())
+        })
+        .map_err(|e| error!("[Service]start_monitor_timer interval errored; err={:?}", e))
+        .then(|_| {
+            info!("[Service] monitor timer future completed");
+            Ok(())
+        });;
 
         current_thread::spawn(task);
-    }
-
-    fn do_keepalive(&self) {
-        debug!("[Service]do_keepalive");
-        let forwarder = &self.forwarder;
-        let tunmgr = &self.tunmgr;
-
-        match forwarder.as_ref() {
-            Some(f) => {
-                f.borrow_mut().keepalive(f.clone());
-            }
-            None => {}
-        }
-
-        match tunmgr.as_ref() {
-            Some(t) => {
-                t.borrow_mut().keepalive(t.clone());
-            }
-            None => {}
-        }
     }
 }
