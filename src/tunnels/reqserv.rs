@@ -32,13 +32,13 @@ pub fn serve_sock(socket: TcpStream, mgr: Rc<RefCell<TunMgr>>) {
     //let result = getsockopt(rawfd, OriginalDst).unwrap();
     let result = getsockname(rawfd).unwrap();
 
-    let mut ip_le = 0; // result.sin_addr.s_addr;
-    let mut port_le = 0; // result.sin_port.to_be();
+    let mut ip_be = 0; // result.sin_addr.s_addr;
+    let mut port_be = 0; // result.sin_port.to_be();
     match result {
         Inet(iaddr) => match iaddr {
             V4(v) => {
-                ip_le = v.sin_addr.s_addr;
-                port_le = v.sin_port.to_be();
+                ip_be = v.sin_addr.s_addr.to_be();
+                port_be = v.sin_port.to_be();
             }
             _ => {
                 // TODO: ipv6
@@ -47,8 +47,8 @@ pub fn serve_sock(socket: TcpStream, mgr: Rc<RefCell<TunMgr>>) {
         _ => {}
     }
 
-    let ipaddr = std::net::Ipv4Addr::from(ip_le.to_be()); // ip_le.to_be()
-    info!("[Server]serve_sock, ip:{}, port:{}", ipaddr, port_le);
+    let ipaddr = std::net::Ipv4Addr::from(ip_be); // ip_le.to_be()
+    info!("[Server]serve_sock, ip:{}, port:{}", ipaddr, port_be);
 
     // set 2 seconds write-timeout
     let mut socket = TimeoutStream::new(socket);
@@ -60,7 +60,7 @@ pub fn serve_sock(socket: TcpStream, mgr: Rc<RefCell<TunMgr>>) {
     let (trigger, tripwire) = Tripwire::new();
     let (tx, rx) = futures::sync::mpsc::unbounded();
 
-    let req = Request::with(tx, trigger, ip_le, port_le);
+    let req = Request::with(tx, trigger, ip_be, port_be);
     let tunstub = mgr.borrow_mut().on_request_created(req);
 
     if tunstub.is_none() {
@@ -121,6 +121,7 @@ pub fn serve_sock(socket: TcpStream, mgr: Rc<RefCell<TunMgr>>) {
         .map_err(|_| ())
         .join(send_fut.map_err(|_| ()))
         .then(move |_| {
+            info!("[ReqMgr] tcp both futures completed");
             let ts = &tunstub2.borrow();
             mgr.borrow_mut().on_request_closed(ts);
 

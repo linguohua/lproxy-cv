@@ -1,5 +1,5 @@
 pub const KEEP_ALIVE_INTERVAL: u64 = 15 * 1000;
-pub const CFG_MONITOR_INTERVAL: u64 = 3 * 60 * 1000;
+pub const CFG_MONITOR_INTERVAL: u64 = 30 * 60 * 1000;
 
 use std::fmt;
 

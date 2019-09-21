@@ -205,8 +205,8 @@ impl Tunnel {
 
     pub fn on_request_created(&mut self, req: Request) -> Option<TunStub> {
         info!("[Tunnel]on_request_created");
-        let ip = req.ipv4_le;
-        let port = req.port_le;
+        let ip = req.ipv4_be;
+        let port = req.port_be;
 
         let ts = self.on_request_created_internal(req);
         match ts {

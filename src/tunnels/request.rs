@@ -10,8 +10,8 @@ pub struct Request {
     pub request_tx: Option<UnboundedSender<Bytes>>,
     pub trigger: Option<Trigger>,
 
-    pub ipv4_le: u32,
-    pub port_le: u16,
+    pub ipv4_be: u32,
+    pub port_be: u16,
 }
 
 impl Request {
@@ -21,8 +21,8 @@ impl Request {
             tag: 0,
             request_tx: None,
             trigger: None,
-            ipv4_le: 0,
-            port_le: 0,
+            ipv4_be: 0,
+            port_be: 0,
         }
     }
 
@@ -32,8 +32,8 @@ impl Request {
             tag: 0,
             request_tx: Some(tx),
             trigger: Some(trigger),
-            ipv4_le:ip,
-            port_le:port,
+            ipv4_be:ip,
+            port_be:port,
         }
     }
 }
@@ -43,7 +43,7 @@ impl fmt::Debug for Request {
         write!(
             f,
             "Req {{ indx: {}, tag: {}, ip:{}, port:{} }}",
-            self.index, self.tag, self.ipv4_le, self.port_le
+            self.index, self.tag, self.ipv4_be, self.port_be
         )
     }
 }
