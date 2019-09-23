@@ -176,7 +176,7 @@ impl DnsTunnel {
 
         let size = message.len();
         let hsize = 6; // port + ipv4
-        let buf = &mut vec![0; hsize + size];
+        let mut buf = vec![0; hsize + size];
         let header = &mut buf[0..hsize];
         let offset = &mut 0;
         info!("[DnsTunnel]on_dns_udp_msg, port:{}, ip:{}", port, ip);
@@ -186,7 +186,7 @@ impl DnsTunnel {
         let msg_body = &mut buf[hsize..];
         msg_body.copy_from_slice(message.as_ref());
 
-        let wmsg = Message::from(&buf[..]);
+        let wmsg = Message::from(buf);
         let tx = &self.tx;
         let result = tx.unbounded_send(wmsg);
         match result {

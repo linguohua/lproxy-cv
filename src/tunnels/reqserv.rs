@@ -135,7 +135,7 @@ fn on_request_msg(message: BytesMut, tun: &TunStub) -> bool {
     info!("[ReqMgr]on_request_msg, tun:{}", tun);
     let size = message.len();
     let hsize = THEADER_SIZE;
-    let buf = &mut vec![0; hsize + size];
+    let mut buf = vec![0; hsize + size];
 
     let th = THeader::new_data_header(tun.req_idx, tun.req_tag);
     let msg_header = &mut buf[0..hsize];
@@ -143,7 +143,7 @@ fn on_request_msg(message: BytesMut, tun: &TunStub) -> bool {
     let msg_body = &mut buf[hsize..];
     msg_body.copy_from_slice(message.as_ref());
 
-    let wmsg = Message::from(&buf[..]);
+    let wmsg = Message::from(buf);
     let tx = &tun.tunnel_tx;
     let result = tx.unbounded_send(wmsg);
     match result {
@@ -164,13 +164,13 @@ fn on_request_recv_finished(tun: &TunStub) {
     info!("[ReqMgr]on_request_recv_finished:{}", tun);
 
     let hsize = THEADER_SIZE;
-    let buf = &mut vec![0; hsize];
+    let mut buf = vec![0; hsize];
 
     let th = THeader::new(Cmd::ReqClientFinished, tun.req_idx, tun.req_tag);
     let msg_header = &mut buf[0..hsize];
     th.write_to(msg_header);
 
-    let wmsg = Message::from(&buf[..]);
+    let wmsg = Message::from(buf);
     let tx = &tun.tunnel_tx;
     let result = tx.unbounded_send(wmsg);
 

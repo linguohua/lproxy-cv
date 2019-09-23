@@ -303,9 +303,9 @@ impl Tunnel {
         );
 
         // send request to server
-        let size = 4 + 2; // ipv4 + port;
+        let size = 1 + 4 + 2; // ipv4 + port;
         let hsize = THEADER_SIZE;
-        let buf = &mut vec![0; hsize + size];
+        let mut buf = vec![0; hsize + size];
 
         let th = THeader::new(Cmd::ReqCreated, ts.req_idx, ts.req_tag);
         let msg_header = &mut buf[0..hsize];
@@ -313,11 +313,12 @@ impl Tunnel {
         let msg_body = &mut buf[hsize..];
 
         let offset = &mut 0;
-        msg_body.write_with::<u32>(offset, ip, LE).unwrap();
-        msg_body.write_with::<u16>(offset, port, LE).unwrap();
+        msg_body.write_with::<u8>(offset, 0, LE).unwrap(); // address type
+        msg_body.write_with::<u32>(offset, ip, LE).unwrap(); // ip
+        msg_body.write_with::<u16>(offset, port, LE).unwrap(); // port
 
         // websocket message
-        let wmsg = Message::from(&buf[..]);
+        let wmsg = Message::from(buf);
 
         // send to peer, should always succeed
         if let Err(e) = ts.tunnel_tx.unbounded_send(wmsg) {
@@ -333,14 +334,14 @@ impl Tunnel {
 
         // send request to server
         let hsize = THEADER_SIZE;
-        let buf = &mut vec![0; hsize];
+        let mut buf = vec![0; hsize];
 
         let th = THeader::new(Cmd::ReqClientClosed, ts.req_idx, ts.req_tag);
         let msg_header = &mut buf[0..hsize];
         th.write_to(msg_header);
 
         // websocket message
-        let wmsg = Message::from(&buf[..]);
+        let wmsg = Message::from(buf);
 
         // send to peer, should always succeed
         if let Err(e) = ts.tunnel_tx.unbounded_send(wmsg) {
