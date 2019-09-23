@@ -330,25 +330,22 @@ impl Service {
         self.save_monitor_trigger(trigger);
 
         // tokio timer, every 3 seconds
-        let task = Interval::new(
-            Instant::now(),
-            Duration::from_millis(CFG_MONITOR_INTERVAL),
-        )
-        .skip(1)
-        .take_until(tripwire)
-        .for_each(move |instant| {
-            debug!("[Service]monitor timer fire; instant={:?}", instant);
+        let task = Interval::new(Instant::now(), Duration::from_millis(CFG_MONITOR_INTERVAL))
+            .skip(1)
+            .take_until(tripwire)
+            .for_each(move |instant| {
+                debug!("[Service]monitor timer fire; instant={:?}", instant);
 
-            let rf = s2.borrow_mut();
-            rf.fire_instruction(Instruction::ServerCfgMonitor);
+                let rf = s2.borrow_mut();
+                rf.fire_instruction(Instruction::ServerCfgMonitor);
 
-            Ok(())
-        })
-        .map_err(|e| error!("[Service]start_monitor_timer interval errored; err={:?}", e))
-        .then(|_| {
-            info!("[Service] monitor timer future completed");
-            Ok(())
-        });;
+                Ok(())
+            })
+            .map_err(|e| error!("[Service]start_monitor_timer interval errored; err={:?}", e))
+            .then(|_| {
+                info!("[Service] monitor timer future completed");
+                Ok(())
+            });;
 
         current_thread::spawn(task);
     }

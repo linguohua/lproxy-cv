@@ -23,6 +23,8 @@ pub struct TunMgr {
     capacity: usize,
     pub tunnel_req_cap: usize,
     tunnels: Vec<TunnelItem>,
+    sorted_tun_indies: Vec<u16>,
+    current_tun_idx: u16,
     reconnect_queue: Vec<u16>,
     discarded: bool,
     keepalive_trigger: Option<Trigger>,
@@ -34,8 +36,10 @@ impl TunMgr {
         let capacity = cfg.tunnel_number;
 
         let mut vec = Vec::with_capacity(capacity);
-        for _ in 0..capacity {
+        let mut sv = Vec::with_capacity(capacity);
+        for n in 0..capacity {
             vec.push(None);
+            sv.push(n as u16);
         }
 
         Rc::new(RefCell::new(TunMgr {
@@ -48,6 +52,8 @@ impl TunMgr {
             relay_port: cfg.relay_port,
             discarded: false,
             keepalive_trigger: None,
+            sorted_tun_indies: sv,
+            current_tun_idx: 0,
         }))
     }
 
@@ -181,46 +187,81 @@ impl TunMgr {
 
     fn alloc_tunnel_for_req(&mut self) -> TunnelItem {
         info!("[TunMgr]alloc_tunnel_for_req");
-        let tunnels = &mut self.tunnels;
-        let mut tselected = None;
-        let mut rtt = std::i64::MAX;
-        let mut req_count = std::u16::MAX;
+        let length = self.sorted_tun_indies.len();
+        let current_idx = self.current_tun_idx as usize;
 
+        for n in current_idx..length {
+            let tun_idx = self.sorted_tun_indies[n];
+            let tun2 = &self.tunnels[tun_idx as usize];
+            if tun2.is_none() {
+                continue;
+            }
+
+            let tun2 = tun2.as_ref().unwrap();
+            let tun = tun2.borrow();
+            let req_count_tun = tun.get_req_count();
+            // skip fulled tunnel
+            if (req_count_tun + 1) >= tun.capacity {
+                continue;
+            }
+
+            self.current_tun_idx = ((n + 1) % length) as u16;
+
+            return Some(tun2.clone());
+        }
+
+        for n in 0..current_idx {
+            let tun_idx = self.sorted_tun_indies[n];
+            let tun2 = &self.tunnels[tun_idx as usize];
+            if tun2.is_none() {
+                continue;
+            }
+
+            let tun2 = tun2.as_ref().unwrap();
+            let tun = tun2.borrow();
+            let req_count_tun = tun.get_req_count();
+            // skip fulled tunnel
+            if (req_count_tun + 1) >= tun.capacity {
+                continue;
+            }
+
+            self.current_tun_idx = ((n + 1) % length) as u16;
+
+            return Some(tun2.clone());
+        }
+
+        return None;
+    }
+
+    fn sort_tunnels_by_busy(&mut self) {
+        let tunnels = &self.tunnels;
+        self.sorted_tun_indies.sort_by(|x, y| {
+            let tun1 = &tunnels[*x as usize];
+            let tun2 = &tunnels[*y as usize];
+
+            if tun1.is_none() || tun2.is_none() {
+                return std::cmp::Ordering::Equal;
+            }
+
+            let tun1 = tun1.as_ref().unwrap().borrow();
+            let tun2 = tun2.as_ref().unwrap().borrow();
+
+            let busy1 = tun1.get_busy();
+            let busy2 = tun2.get_busy();
+
+            busy1.cmp(&busy2)
+        });
+
+        let tunnels = &self.tunnels;
         for t in tunnels.iter() {
             match t {
-                Some(tun2) => {
-                    let tun = tun2.borrow();
-                    let req_count_tun = tun.get_req_count();
-                    // skip fulled tunnel
-                    if (req_count_tun + 1) >= tun.capacity {
-                        continue;
-                    }
-
-                    let rtt_tun = tun.get_rtt();
-
-                    let mut selected = false;
-                    info!(
-                        "[TunMgr]alloc_tunnel_for_req, idx:{}, rtt:{}, req_count:{}",
-                        tun.index, rtt_tun, req_count_tun
-                    );
-
-                    if rtt_tun < rtt {
-                        selected = true;
-                    } else if rtt_tun == rtt && req_count_tun < req_count {
-                        selected = true;
-                    }
-
-                    if selected {
-                        rtt = rtt_tun;
-                        req_count = req_count_tun;
-                        tselected = Some(tun2.clone());
-                    }
+                Some(tun) => {
+                    let mut tun = tun.borrow_mut();
+                    tun.reset_busy();
                 }
                 None => {}
             }
         }
-
-        tselected
     }
 
     fn send_pings(&self) {
@@ -260,6 +301,8 @@ impl TunMgr {
 
             return;
         }
+
+        self.sort_tunnels_by_busy();
 
         self.send_pings();
         self.process_reconnect(s.clone());

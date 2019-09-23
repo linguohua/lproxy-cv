@@ -28,6 +28,8 @@ pub struct Tunnel {
 
     time: Instant,
     rawfd: RawFd,
+
+    busy: usize,
 }
 
 impl Tunnel {
@@ -49,6 +51,7 @@ impl Tunnel {
             ping_count: 0,
             time: Instant::now(),
             rawfd: rawfd,
+            busy: 0,
         }
     }
 
@@ -70,6 +73,8 @@ impl Tunnel {
         }
 
         let bs = msg.into_data();
+        self.busy += bs.len();
+
         let th = THeader::read_from(&bs[..]);
         let cmd = Cmd::from(th.cmd);
         match cmd {
@@ -150,9 +155,16 @@ impl Tunnel {
         self.rtt_sum = self.rtt_sum + rtt - rtt_remove;
     }
 
-    pub fn get_rtt(&self) -> i64 {
-        let rtt_sum = self.rtt_sum;
-        rtt_sum / (self.rtt_queue.len() as i64)
+    // pub fn get_rtt(&self) -> i64 {
+    //     let rtt_sum = self.rtt_sum;
+    //     rtt_sum / (self.rtt_queue.len() as i64)
+    // }
+    pub fn reset_busy(&mut self) {
+        self.busy = 0;
+    }
+
+    pub fn get_busy(&self) -> usize {
+        return self.busy;
     }
 
     pub fn get_req_count(&self) -> u16 {

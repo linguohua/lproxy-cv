@@ -1,17 +1,17 @@
-use super::{ReqMgr};
+use super::ReqMgr;
 use failure::Error;
 use log::{error, info};
 use nix::sys::socket::setsockopt;
 use nix::sys::socket::sockopt::IpTransparent;
+use std::cell::RefCell;
 use std::os::unix::io::AsRawFd;
+use std::rc::Rc;
 use std::result::Result;
 use stream_cancel::{StreamExt, Trigger, Tripwire};
 use tokio;
 use tokio::prelude::*;
-use tokio_tcp::TcpListener;
-use std::cell::RefCell;
-use std::rc::Rc;
 use tokio::runtime::current_thread;
+use tokio_tcp::TcpListener;
 
 type LongLive = Rc<RefCell<Server>>;
 
