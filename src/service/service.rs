@@ -133,6 +133,21 @@ impl Service {
         }
     }
 
+    fn parse_auth_reply(response: &htp::HTTPResponse) -> Option<config::AuthResp> {
+        if response.status != 200 {
+            return None;
+        }
+
+        if let Some(ref body) = response.body {
+            let aresp: config::AuthResp = config::AuthResp::from_json_str(body);
+            info!("[Service]AuthResp:{:?}", aresp);
+
+            return Some(aresp);
+        } else {
+            return None;
+        }
+    }
+
     fn do_auth(s: LongLive) {
         info!("[Service]do_auth");
         let httpserver = config::server_url();
@@ -148,28 +163,25 @@ impl Service {
             .and_then(move |response| {
                 info!("[Service]do_auth http response:{:?}", response);
 
-                if response.status != 200 {
-                    // TODO: not support redirect yet!
-                    let seconds = 10;
+                let mut retry = true;
+                if let Some(mut rsp) = Service::parse_auth_reply(&response) {
+                    if rsp.tuncfg.is_some() {
+                        let cfg = rsp.tuncfg.take().unwrap();
+                        let mut rf = sclone.borrow_mut();
+                        rf.save_cfg(cfg);
+                        rf.fire_instruction(Instruction::StartSubServices);
+                        retry = false;
+                    }
+                }
+
+                if retry {
+                    let seconds = 30;
                     error!(
-                        "[Service]do_auth http request failed, status: {} not 200, retry {} seconds later",
-                        response.status, seconds
+                        "[Service]do_auth http request failed, no body, retry {} seconds later",
+                        seconds
                     );
-                    Service::delay_post_instruction(sclone.clone(), 30, Instruction::Auth);
-
-                    return Ok(());
+                    Service::delay_post_instruction(sclone.clone(), seconds, Instruction::Auth);
                 }
-
-                if let Some(ref body) = response.body {
-                    let aresp: config::AuthResp = config::AuthResp::from_json_str(body);
-                    info!("[Service]AuthResp:{}", aresp);
-                }
-
-                // TODO: use reponse to init TunCfg
-                let cfg = config::TunCfg::new();
-                let mut rf = sclone.borrow_mut();
-                rf.save_cfg(cfg);
-                rf.fire_instruction(Instruction::StartSubServices);
                 Ok(())
             })
             .or_else(move |e| {
@@ -198,11 +210,14 @@ impl Service {
             .and_then(move |response| {
                 debug!("[Service]do_cfg_monitor http response:{:?}", response);
 
-                // TODO: use reponse to init TunCfg
-                let cfg = config::TunCfg::new();
-                let mut rf = sclone.borrow_mut();
-                rf.save_cfg(cfg);
-                rf.fire_instruction(Instruction::Restart);
+                if let Some(mut rsp) = Service::parse_auth_reply(&response) {
+                    if rsp.restart && rsp.tuncfg.is_some() {
+                        let cfg = rsp.tuncfg.take().unwrap();
+                        let mut rf = sclone.borrow_mut();
+                        rf.save_cfg(cfg);
+                        rf.fire_instruction(Instruction::Restart);
+                    }
+                }
 
                 Ok(())
             })
