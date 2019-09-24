@@ -9,6 +9,7 @@ use std::rc::Rc;
 use tokio;
 use tokio::runtime::current_thread;
 use tokio_tungstenite::stream::PeerAddr;
+use tungstenite::protocol::WebSocketConfig;
 use url;
 
 pub fn connect(tm: &TunMgr, mgr2: Rc<RefCell<TunMgr>>, index: usize) {
@@ -23,8 +24,11 @@ pub fn connect(tm: &TunMgr, mgr2: Rc<RefCell<TunMgr>>, index: usize) {
     let mgr3 = mgr2.clone();
     let mgr4 = mgr2.clone();
 
+    let mut config = WebSocketConfig::default();
+    config.max_send_queue = Some(64);
+
     // TODO: need to specify address and port
-    let client = ws_connect_async(relay_domain, relay_port, url)
+    let client = ws_connect_async(relay_domain, relay_port, url, Some(config))
         .and_then(move |(ws_stream, rawfd)| {
             debug!("[tunbuilder]WebSocket handshake has been successfully completed");
             // let inner = ws_stream.get_inner().get_ref();
