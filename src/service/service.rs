@@ -333,10 +333,15 @@ impl Service {
 
     pub fn config_sys(&self) {
         info!("[Service]config_sys");
+        let tuncfg = self.tuncfg.as_ref().unwrap();
+        super::iptable_rule::set_iptables_rules(tuncfg.local_tcp_port);
+        super::ip_rules::set_ip_rules();
     }
 
     pub fn restore_sys(&self) {
         info!("[Service]restore_sys");
+        super::iptable_rule::unset_iptables_rules();
+        super::ip_rules::unset_ip_rules();
     }
 
     fn start_monitor_timer(&mut self, s2: LongLive) {
