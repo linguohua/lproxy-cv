@@ -18,6 +18,7 @@ pub struct TunCfg {
     pub dns_tunnel_number: usize,
 
     pub domain_array: Vec<String>,
+    pub local_dns_server: String,
 }
 
 // impl TunCfg {
@@ -110,6 +111,11 @@ impl AuthResp {
                 None => "wss://127.0.0.1/dns".to_string(),
             };
 
+            let local_dns_server = match v_tuncfg["local_dns_server"].as_str() {
+                Some(t) => t.to_string(),
+                None => "223.5.5.5:53".to_string(),
+            };
+
             let dns_tunnel_number = match v_tuncfg["dns_tunnel_number"].as_u64() {
                 Some(t) => t as usize,
                 None => 1,
@@ -145,6 +151,7 @@ impl AuthResp {
                 dns_tun_url: dns_tun_url,
                 dns_tunnel_number: dns_tunnel_number,
                 domain_array,
+                local_dns_server,
             };
 
             tuncfg = Some(tc);

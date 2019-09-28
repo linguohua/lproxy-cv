@@ -69,7 +69,7 @@ impl Forwarder {
             discarded: false,
             keepalive_trigger: None,
             domap,
-            lresolver: LocalResolver::new(),
+            lresolver: LocalResolver::new(&cfg.local_dns_server),
         }))
     }
 
