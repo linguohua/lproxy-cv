@@ -6,3 +6,7 @@ mod udpserv;
 pub use udpserv::*;
 mod dnstunnel;
 pub use dnstunnel::*;
+mod domap;
+pub use domap::*;
+mod dnspacket;
+pub use dnspacket::*;

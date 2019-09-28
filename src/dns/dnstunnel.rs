@@ -1,3 +1,4 @@
+use super::dnspacket::{BytePacketBuffer, DnsPacket};
 use crate::config::KEEP_ALIVE_INTERVAL;
 use byte::*;
 use futures::sync::mpsc::UnboundedSender;
@@ -75,6 +76,24 @@ impl DnsTunnel {
                 let ip32 = bs.read_with::<u32>(offset, LE).unwrap();
                 info!("[DnsTunnel]on_tunnel_msg, port:{}, ip:{}", port, ip32);
                 let content = &bs[6..];
+
+                // parse dns reponse and store to ipset
+                // let buf = &mut bf.buf[0..message.len()];
+                let mut bf = BytePacketBuffer::new(content);
+                // buf.copy_from_slice();
+                let dnspacket = DnsPacket::from_buffer(&mut bf);
+                match dnspacket {
+                    Ok(p) => {
+                        for a in p.answers.iter() {
+                            info!("[Forwarder]dns ip:{:?}", a);
+                        }
+                    }
+
+                    Err(e) => {
+                        error!("[Forwarder]parse dns packet failed:{}", e);
+                    }
+                }
+
                 let sockaddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::from(ip32)), port);
                 tx.unbounded_send((bytes::Bytes::from(content), sockaddr))
                     .unwrap(); // udp send should not failed!

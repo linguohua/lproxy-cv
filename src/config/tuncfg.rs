@@ -16,6 +16,8 @@ pub struct TunCfg {
     pub dns_udp_addr: String,
     pub dns_tun_url: String,
     pub dns_tunnel_number: usize,
+
+    pub domain_array: Vec<String>,
 }
 
 // impl TunCfg {
@@ -118,6 +120,19 @@ impl AuthResp {
                 None => 5000,
             };
 
+            let mut domain_array: Vec<String> = Vec::new();
+            match v_tuncfg["domain_array"].as_array() {
+                Some(t_array) => {
+                    for vv in t_array.iter() {
+                        match vv.as_str() {
+                            Some(t) => domain_array.push(t.to_string()),
+                            None => {}
+                        };
+                    }
+                }
+                None => {}
+            };
+
             let tc = TunCfg {
                 tunnel_number: tunnel_number,
                 websocket_url: websocket_url,
@@ -129,6 +144,7 @@ impl AuthResp {
                 dns_udp_addr: dns_udp_addr,
                 dns_tun_url: dns_tun_url,
                 dns_tunnel_number: dns_tunnel_number,
+                domain_array,
             };
 
             tuncfg = Some(tc);

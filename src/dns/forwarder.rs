@@ -1,4 +1,6 @@
+use super::dnspacket::{BytePacketBuffer, DnsPacket};
 use super::dnstunbuilder;
+use super::domap::DomainMap;
 use super::DnsTunnel;
 use super::UdpServer;
 use crate::config::{TunCfg, KEEP_ALIVE_INTERVAL};
@@ -12,6 +14,7 @@ use stream_cancel::{StreamExt, Trigger, Tripwire};
 use tokio::prelude::*;
 use tokio::runtime::current_thread;
 use tokio::timer::Interval;
+
 type TunnelItem = Option<Rc<RefCell<DnsTunnel>>>;
 
 type LongLife = Rc<RefCell<Forwarder>>;
@@ -29,6 +32,8 @@ pub struct Forwarder {
     server: Rc<RefCell<UdpServer>>,
     discarded: bool,
     keepalive_trigger: Option<Trigger>,
+
+    domap: DomainMap,
 }
 
 impl Forwarder {
@@ -39,6 +44,15 @@ impl Forwarder {
         for _ in 0..capacity {
             vec.push(None);
         }
+
+        let mut domap = DomainMap::new();
+        for it in cfg.domain_array.iter() {
+            domap.insert(&it);
+        }
+        info!(
+            "[Forwarder]insert {} domain into domap",
+            cfg.domain_array.len()
+        );
 
         Rc::new(RefCell::new(Forwarder {
             udp_addr: cfg.dns_udp_addr.to_string(),
@@ -51,6 +65,7 @@ impl Forwarder {
             server: UdpServer::new(&cfg.dns_udp_addr),
             discarded: false,
             keepalive_trigger: None,
+            domap,
         }))
     }
 
@@ -189,6 +204,26 @@ impl Forwarder {
             error!("[Forwarder]on_dns_udp_msg, forwarder is discarded, request will be discarded");
 
             return false;
+        }
+
+        // let buf = &mut bf.buf[0..message.len()];
+        let mut bf = BytePacketBuffer::new(message.as_ref());
+        // buf.copy_from_slice();
+        let dnspacket = DnsPacket::from_buffer(&mut bf);
+        match dnspacket {
+            Ok(p) => {
+                let q = &p.questions[0];
+
+                if self.domap.has(&q.name) {
+                    info!("[Forwarder]dns domain:{}, use remote resolver", q.name);
+                } else {
+                    info!("[Forwarder]dns domain:{}, use local resolver", q.name);
+                }
+            }
+
+            Err(e) => {
+                error!("[Forwarder]parse dns packet failed:{}", e);
+            }
         }
 
         // select tunnel
