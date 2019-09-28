@@ -180,7 +180,7 @@ impl DnsTunnel {
         rtt_sum / (self.rtt_queue.len() as i64)
     }
 
-    pub fn on_dns_udp_msg(&self, message: &bytes::BytesMut, addr: &std::net::SocketAddr) {
+    pub fn on_dns_udp_msg(&self, message: bytes::BytesMut, addr: std::net::SocketAddr) {
         let port = addr.port();
         let mut ip: u32 = 0;
         match addr.ip() {

@@ -2,6 +2,7 @@ use super::dnspacket::{BytePacketBuffer, DnsPacket};
 use super::dnstunbuilder;
 use super::domap::DomainMap;
 use super::DnsTunnel;
+use super::LocalResolver;
 use super::UdpServer;
 use crate::config::{TunCfg, KEEP_ALIVE_INTERVAL};
 use failure::Error;
@@ -34,6 +35,8 @@ pub struct Forwarder {
     keepalive_trigger: Option<Trigger>,
 
     domap: DomainMap,
+
+    lresolver: Rc<RefCell<LocalResolver>>,
 }
 
 impl Forwarder {
@@ -66,6 +69,7 @@ impl Forwarder {
             discarded: false,
             keepalive_trigger: None,
             domap,
+            lresolver: LocalResolver::new(),
         }))
     }
 
@@ -74,7 +78,10 @@ impl Forwarder {
         self.start_keepalive_timer(s.clone());
 
         let mut serv = self.server.borrow_mut();
-        serv.start(self, s)
+        serv.start(self, s.clone())?;
+
+        let mut lresolver = self.lresolver.borrow_mut();
+        lresolver.start(self, s)
     }
 
     pub fn on_dns_udp_created(&self, udps: &UdpServer, s: LongLife) {
@@ -89,6 +96,8 @@ impl Forwarder {
             None => {}
         }
     }
+
+    pub fn on_lresolver_udp_created(&self, _udps: &LocalResolver, _s: LongLife) {}
 
     pub fn on_tunnel_created(
         &mut self,
@@ -199,7 +208,62 @@ impl Forwarder {
         error!("[Forwarder]on_dns_udp_closed")
     }
 
-    pub fn on_dns_udp_msg(&self, message: &bytes::BytesMut, addr: &std::net::SocketAddr) -> bool {
+    pub fn on_lresolver_udp_closed(&self) {
+        error!("[Forwarder]on_lresolver_udp_closed")
+    }
+
+    pub fn on_resolver_udp_msg(
+        &self,
+        message: bytes::BytesMut,
+        _addr: &std::net::SocketAddr,
+    ) -> bool {
+        if self.discarded != false {
+            error!(
+                "[Forwarder]on_resolver_udp_msg, forwarder is discarded, request will be discarded"
+            );
+
+            return false;
+        }
+
+        // parse dns reply, extract idendity and query name
+        let mut bf = BytePacketBuffer::new(message.as_ref());
+        // buf.copy_from_slice();
+        let dnspacket = DnsPacket::from_buffer(&mut bf);
+        match dnspacket {
+            Ok(p) => {
+                let q = &p.questions[0];
+                let qname = &q.name;
+                let identify = p.header.id;
+
+                // use identity and query name to found target address
+                let sockaddr = self.lresolver.borrow_mut().take(qname, identify);
+                match sockaddr {
+                    Some(sa) => {
+                        let bm = bytes::Bytes::from(message);
+                        self.server.borrow().reply(bm,sa);
+                        },
+                    None => {
+                        error!(
+                            "[Forwarder]on_resolver_udp_msg, no target address found for:{}",
+                            qname
+                        );
+                    }
+                }
+                // send to target
+            }
+
+            Err(e) => {
+                error!(
+                    "[Forwarder]on_resolver_udp_msg parse dns packet failed:{}",
+                    e
+                );
+            }
+        }
+
+        true
+    }
+
+    pub fn on_dns_udp_msg(&self, message: bytes::BytesMut, src_addr: std::net::SocketAddr) -> bool {
         if self.discarded != false {
             error!("[Forwarder]on_dns_udp_msg, forwarder is discarded, request will be discarded");
 
@@ -216,24 +280,25 @@ impl Forwarder {
 
                 if self.domap.has(&q.name) {
                     info!("[Forwarder]dns domain:{}, use remote resolver", q.name);
+                    // select tunnel
+                    let tun = self.alloc_tunnel_for_req();
+                    match tun {
+                        Some(tun) => {
+                            tun.borrow().on_dns_udp_msg(message, src_addr);
+                        }
+                        None => {
+                            error!("[Forwarder]on_dns_udp_msg, no tunnel");
+                        }
+                    }
                 } else {
                     info!("[Forwarder]dns domain:{}, use local resolver", q.name);
+                    let bm = bytes::Bytes::from(message);
+                    self.lresolver.borrow_mut().request(&q.name, p.header.id, bm, src_addr);
                 }
             }
 
             Err(e) => {
                 error!("[Forwarder]parse dns packet failed:{}", e);
-            }
-        }
-
-        // select tunnel
-        let tun = self.alloc_tunnel_for_req();
-        match tun {
-            Some(tun) => {
-                tun.borrow().on_dns_udp_msg(message, addr);
-            }
-            None => {
-                error!("[Forwarder]on_dns_udp_msg, no tunnel");
             }
         }
 
@@ -284,6 +349,8 @@ impl Forwarder {
             return;
         }
 
+        self.lresolver.borrow_mut().keepalive();
+
         self.send_pings();
         self.process_reconnect(s);
     }
@@ -299,6 +366,8 @@ impl Forwarder {
         self.keepalive_trigger = None;
         let s = &self.server;
         s.borrow_mut().stop();
+        let s2 = &self.lresolver;
+        s2.borrow_mut().stop();
 
         let tunnels = &self.tunnels;
         for t in tunnels.iter() {

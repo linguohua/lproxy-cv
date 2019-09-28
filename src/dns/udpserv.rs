@@ -57,7 +57,7 @@ impl UdpServer {
             .for_each(move |(message, addr)| {
                 let rf = forwarder1.borrow();
                 // post to manager
-                if rf.on_dns_udp_msg(&message, &addr) {
+                if rf.on_dns_udp_msg(message, addr) {
                     Ok(())
                 } else {
                     Err(std::io::Error::from(std::io::ErrorKind::Other))
@@ -96,5 +96,17 @@ impl UdpServer {
 
     pub fn stop(&mut self) {
         self.tx = (None, None);
+    }
+
+    pub fn reply(&self, bm: bytes::Bytes, sa: SocketAddr) {
+        match self.get_tx() {
+            Some(tx) => match tx.unbounded_send((bm, sa)) {
+                Err(e) => {
+                    error!("[Forwarder]unbounded_senderror:{}", e);
+                }
+                _ => {}
+            },
+            None => {}
+        }
     }
 }

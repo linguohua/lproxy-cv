@@ -10,3 +10,5 @@ mod domap;
 pub use domap::*;
 mod dnspacket;
 pub use dnspacket::*;
+mod lresolver;
+pub use lresolver::*;
