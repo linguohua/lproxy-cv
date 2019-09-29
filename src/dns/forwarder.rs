@@ -1,10 +1,11 @@
-use super::dnspacket::{BytePacketBuffer, DnsPacket};
+use super::dnspacket::{BytePacketBuffer, DnsPacket, DnsRecord};
 use super::dnstunbuilder;
 use super::domap::DomainMap;
+use super::netlink::{construct_ipset_packet, NLSocket};
 use super::DnsTunnel;
 use super::LocalResolver;
 use super::UdpServer;
-use crate::config::{TunCfg, KEEP_ALIVE_INTERVAL};
+use crate::config::{TunCfg, IPSET_TABLE_NULL, KEEP_ALIVE_INTERVAL};
 use failure::Error;
 use log::{debug, error, info};
 use std::cell::RefCell;
@@ -37,6 +38,8 @@ pub struct Forwarder {
     domap: DomainMap,
 
     lresolver: Rc<RefCell<LocalResolver>>,
+
+    nsock: NLSocket,
 }
 
 impl Forwarder {
@@ -70,6 +73,7 @@ impl Forwarder {
             keepalive_trigger: None,
             domap,
             lresolver: LocalResolver::new(&cfg.local_dns_server),
+            nsock: NLSocket::new(),
         }))
     }
 
@@ -240,8 +244,8 @@ impl Forwarder {
                 match sockaddr {
                     Some(sa) => {
                         let bm = bytes::Bytes::from(message);
-                        self.server.borrow().reply(bm,sa);
-                        },
+                        self.server.borrow().reply(bm, sa);
+                    }
                     None => {
                         error!(
                             "[Forwarder]on_resolver_udp_msg, no target address found for:{}",
@@ -293,7 +297,9 @@ impl Forwarder {
                 } else {
                     info!("[Forwarder]dns domain:{}, use local resolver", q.name);
                     let bm = bytes::Bytes::from(message);
-                    self.lresolver.borrow_mut().request(&q.name, p.header.id, bm, src_addr);
+                    self.lresolver
+                        .borrow_mut()
+                        .request(&q.name, p.header.id, bm, src_addr);
                 }
             }
 
@@ -303,6 +309,29 @@ impl Forwarder {
         }
 
         true
+    }
+
+    pub fn save_ipset(&self, p: &DnsPacket) {
+        for a in p.answers.iter() {
+            match a {
+                DnsRecord::A {
+                    domain: _,
+                    addr,
+                    ttl: _,
+                } => {
+                    let ipv4 = addr.octets();
+                    let mut vec = vec![0 as u8; 256];
+                    let len = construct_ipset_packet(IPSET_TABLE_NULL, &ipv4[..], &mut vec);
+                    match self.nsock.send_to(&vec[..len as usize], 0) {
+                        Err(e) => {
+                            error!("[Forwarder] save ipset failed:{}", e);
+                        }
+                        _ => {}
+                    }
+                }
+                _ => {}
+            }
+        }
     }
 
     fn alloc_tunnel_for_req(&self) -> TunnelItem {

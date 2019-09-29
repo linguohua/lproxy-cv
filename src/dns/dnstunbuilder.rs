@@ -24,6 +24,7 @@ pub fn connect(fw: &Forwarder, mgr2: Rc<RefCell<Forwarder>>, index: usize, udp_t
     let mgr1 = mgr2.clone();
     let mgr3 = mgr2.clone();
     let mgr4 = mgr2.clone();
+    let mgr5 = mgr2.clone();
 
     let mut config = WebSocketConfig::default();
     config.max_send_queue = Some(64);
@@ -61,7 +62,7 @@ pub fn connect(fw: &Forwarder, mgr2: Rc<RefCell<Forwarder>>, index: usize, udp_t
                 debug!("[dnstunbuilder]tunnel read a message");
                 // post to manager
                 let mut clone = t.borrow_mut();
-                clone.on_tunnel_msg(message);
+                clone.on_tunnel_msg(message, &mgr5.borrow());
                 Ok(())
             });
 

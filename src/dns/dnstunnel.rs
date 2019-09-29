@@ -1,4 +1,5 @@
 use super::dnspacket::{BytePacketBuffer, DnsPacket};
+use super::Forwarder;
 use crate::config::KEEP_ALIVE_INTERVAL;
 use byte::*;
 use futures::sync::mpsc::UnboundedSender;
@@ -51,7 +52,7 @@ impl DnsTunnel {
         }
     }
 
-    pub fn on_tunnel_msg(&mut self, msg: Message) {
+    pub fn on_tunnel_msg(&mut self, msg: Message, fw: &Forwarder) {
         if msg.is_ping() {
             return;
         }
@@ -84,9 +85,7 @@ impl DnsTunnel {
                 let dnspacket = DnsPacket::from_buffer(&mut bf);
                 match dnspacket {
                     Ok(p) => {
-                        for a in p.answers.iter() {
-                            info!("[Forwarder]dns ip:{:?}", a);
-                        }
+                        fw.save_ipset(&p);
                     }
 
                     Err(e) => {
