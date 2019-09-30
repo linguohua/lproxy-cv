@@ -5,13 +5,9 @@ pub fn set_ip_rules() {
     unset_ip_rules();
     // sudo ip route add local 0.0.0.0/0 dev lo table 100
     // sudo ip rule add fwmark 1 table 100
-    let arg = "ip route add local 0.0.0.0/0 dev lo table 100";
-    match do_bash_cmd(arg) {
-        Ok(_) => {}
-        Err(_) => {}
-    }
+    let arg = "ip route add local 0.0.0.0/0 dev lo table 100;\
+               ip rule add fwmark 1 table 100";
 
-    let arg = "ip rule add fwmark 1 table 100";
     match do_bash_cmd(arg) {
         Ok(_) => {}
         Err(_) => {}
@@ -21,13 +17,9 @@ pub fn set_ip_rules() {
 pub fn unset_ip_rules() {
     // sudo ip route del local 0.0.0.0/0 dev lo table 100
     // sudo ip rule del fwmark 1 table 100
-    let arg = "ip route del local 0.0.0.0/0 dev lo table 100";
-    match do_bash_cmd(arg) {
-        Ok(_) => {}
-        Err(_) => {}
-    }
+    let arg = "ip route del local 0.0.0.0/0 dev lo table 100;\
+               ip rule del fwmark 1 table 100";
 
-    let arg = "ip rule del fwmark 1 table 100";
     match do_bash_cmd(arg) {
         Ok(_) => {}
         Err(_) => {}

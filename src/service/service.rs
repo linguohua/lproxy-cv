@@ -333,8 +333,8 @@ impl Service {
 
     pub fn config_sys(&self) {
         info!("[Service]config_sys");
-        let tuncfg = self.tuncfg.as_ref().unwrap();
-        super::iptable_rule::set_iptables_rules(tuncfg.local_tcp_port);
+        // let tuncfg = self.tuncfg.as_ref().unwrap();
+        super::iptable_rule::set_iptables_rules();
         super::ip_rules::set_ip_rules();
     }
 
