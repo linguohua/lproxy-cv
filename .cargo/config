@@ -1,0 +1,4 @@
+[target.mipsel-unknown-linux-musl]
+ar = "mipsel-openwrt-linux-musl-ar"
+linker = "mipsel-openwrt-linux-musl-gcc"
+
