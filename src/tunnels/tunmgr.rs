@@ -31,9 +31,9 @@ pub struct TunMgr {
 }
 
 impl TunMgr {
-    pub fn new(cfg: &TunCfg) -> LongLive {
+    pub fn new(tunnel_count: usize, cfg: &TunCfg) -> LongLive {
         info!("[TunMgr]new TunMgr");
-        let capacity = cfg.tunnel_number;
+        let capacity = tunnel_count;
 
         let mut vec = Vec::with_capacity(capacity);
         let mut sv = Vec::with_capacity(capacity);

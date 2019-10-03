@@ -23,3 +23,5 @@ export PKG_CONFIG_ALLOW_CROSS=1
 
 cargo build --target mipsel-unknown-linux-musl --release
 
+#RUSTFLAGS='-C link-arg=-s' cargo build --target mipsel-unknown-linux-musl --release
+

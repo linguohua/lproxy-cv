@@ -138,12 +138,16 @@ fn start_reqmgr(
     }
 }
 
-fn start_one_tunmgr(cfg: Arc<TunCfg>, r_tx: futures::Complete<bool>) -> SubServiceCtl {
+fn start_one_tunmgr(
+    cfg: Arc<TunCfg>,
+    r_tx: futures::Complete<bool>,
+    tunnels_count: usize,
+) -> SubServiceCtl {
     let (tx, rx) = unbounded();
     let handler = std::thread::spawn(move || {
         let mut rt = Runtime::new().unwrap();
         let fut = lazy(move || {
-            let tunmgr = tunnels::TunMgr::new(&cfg);
+            let tunmgr = tunnels::TunMgr::new(tunnels_count, &cfg);
             // thread code
             if let Err(e) = tunmgr.borrow_mut().init(tunmgr.clone()) {
                 error!("[SubService]tunmgr start failed:{}", e);
@@ -205,12 +209,13 @@ fn start_tunmgr(cfg: std::sync::Arc<TunCfg>) -> impl Future<Item = SubsctlVec, E
     let subservices = Rc::new(RefCell::new(Vec::new()));
     let subservices2 = subservices.clone();
     let subservices3 = subservices.clone();
+    let tunnels_per_mgr = cfg.tunnel_number / cpus;
 
     let fut = stream
         .for_each(move |_| {
             let (tx, rx) = futures::oneshot();
             let subservices = subservices.clone();
-            to_future(rx, start_one_tunmgr(cfg.clone(), tx)).and_then(move |ctl| {
+            to_future(rx, start_one_tunmgr(cfg.clone(), tx, tunnels_per_mgr)).and_then(move |ctl| {
                 subservices.borrow_mut().push(ctl);
                 Ok(())
             })

@@ -140,7 +140,7 @@ impl Service {
 
         if let Some(ref body) = response.body {
             let aresp: config::AuthResp = config::AuthResp::from_json_str(body);
-            info!("[Service]AuthResp:{:?}", aresp);
+            // info!("[Service]AuthResp:{:?}", aresp);
 
             return Some(aresp);
         } else {
@@ -161,13 +161,15 @@ impl Service {
         let fut = req
             .exec(Some(arstr))
             .and_then(move |response| {
-                info!("[Service]do_auth http response:{:?}", response);
+                // info!("[Service]do_auth http response:{:?}", response);
 
                 let mut retry = true;
                 if let Some(mut rsp) = Service::parse_auth_reply(&response) {
                     if rsp.tuncfg.is_some() {
                         let cfg = rsp.tuncfg.take().unwrap();
                         let mut rf = sclone.borrow_mut();
+                        info!("[Service]do_auth http response, tunnel count:{}, req cap:{}", cfg.tunnel_number, cfg.tunnel_req_cap);
+
                         rf.save_cfg(cfg);
                         rf.fire_instruction(Instruction::StartSubServices);
                         retry = false;
@@ -208,7 +210,7 @@ impl Service {
         let fut = req
             .exec(None)
             .and_then(move |response| {
-                debug!("[Service]do_cfg_monitor http response:{:?}", response);
+                // debug!("[Service]do_cfg_monitor http response:{:?}", response);
 
                 if let Some(mut rsp) = Service::parse_auth_reply(&response) {
                     if rsp.restart && rsp.tuncfg.is_some() {
