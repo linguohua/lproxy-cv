@@ -17,7 +17,7 @@ pub struct TunCfg {
     pub dns_tun_url: String,
     pub dns_tunnel_number: usize,
 
-    pub domain_array: Vec<String>,
+    pub domain_array: Option<Vec<String>>,
     pub local_dns_server: String,
 }
 
@@ -150,7 +150,7 @@ impl AuthResp {
                 dns_udp_addr: dns_udp_addr,
                 dns_tun_url: dns_tun_url,
                 dns_tunnel_number: dns_tunnel_number,
-                domain_array,
+                domain_array: Some(domain_array),
                 local_dns_server,
             };
 

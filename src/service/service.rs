@@ -47,6 +47,7 @@ pub struct Service {
     tuncfg: Option<std::sync::Arc<config::TunCfg>>,
     monitor_trigger: Option<Trigger>,
     instruction_trigger: Option<Trigger>,
+    domains: Option<Vec<String>>,
 }
 
 impl Service {
@@ -58,6 +59,7 @@ impl Service {
             monitor_trigger: None,
             instruction_trigger: None,
             state: 0,
+            domains: None,
         }))
     }
 
@@ -166,8 +168,10 @@ impl Service {
                 let mut retry = true;
                 if let Some(mut rsp) = Service::parse_auth_reply(&response) {
                     if rsp.tuncfg.is_some() {
-                        let cfg = rsp.tuncfg.take().unwrap();
+                        let mut cfg = rsp.tuncfg.take().unwrap();
                         let mut rf = sclone.borrow_mut();
+                        rf.domains = Some(cfg.domain_array.take().unwrap());
+
                         info!("[Service]do_auth http response, tunnel count:{}, req cap:{}", cfg.tunnel_number, cfg.tunnel_req_cap);
 
                         rf.save_cfg(cfg);
@@ -270,10 +274,19 @@ impl Service {
         {
             cfg = s.borrow().tuncfg.as_ref().unwrap().clone();
         }
+        let domains;
+        {
+            let mut ss = s.borrow_mut();
+            if ss.domains.is_some() {
+                domains = ss.domains.take().unwrap();
+            } else {
+                domains = Vec::new();
+            }
+        }
 
         let clone = s.clone();
         let clone2 = s.clone();
-        let fut = super::start_subservice(cfg)
+        let fut = super::start_subservice(cfg, domains)
             .and_then(move |subservices| {
                 let s2 = &mut clone.borrow_mut();
                 let vec_subservices = &mut subservices.borrow_mut();

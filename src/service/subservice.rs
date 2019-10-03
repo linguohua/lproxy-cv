@@ -40,12 +40,12 @@ pub struct TunMgrStub {
     pub ctl_tx: UnboundedSender<SubServiceCtlCmd>,
 }
 
-fn start_forwarder(cfg: Arc<TunCfg>, r_tx: futures::Complete<bool>) -> SubServiceCtl {
+fn start_forwarder(cfg: Arc<TunCfg>, domains: Vec<String>, r_tx: futures::Complete<bool>) -> SubServiceCtl {
     let (tx, rx) = unbounded();
     let handler = std::thread::spawn(move || {
         let mut rt = Runtime::new().unwrap();
         let fut = lazy(move || {
-            let forwarder = dns::Forwarder::new(&cfg);
+            let forwarder = dns::Forwarder::new(&cfg, domains);
             // thread code
             if let Err(e) = forwarder.borrow_mut().init(forwarder.clone()) {
                 error!("[SubService]forwarder start failed:{}", e);
@@ -232,7 +232,7 @@ fn start_tunmgr(cfg: std::sync::Arc<TunCfg>) -> impl Future<Item = SubsctlVec, E
     fut
 }
 
-pub fn start_subservice(cfg: std::sync::Arc<TunCfg>) -> impl Future<Item = SubsctlVec, Error = ()> {
+pub fn start_subservice(cfg: std::sync::Arc<TunCfg>, domains: Vec<String> ) -> impl Future<Item = SubsctlVec, Error = ()> {
     let cfg2 = cfg.clone();
 
     // start tunmgr first
@@ -268,7 +268,7 @@ pub fn start_subservice(cfg: std::sync::Arc<TunCfg>) -> impl Future<Item = Subsc
     let forward_fut = reqmgr_fut.and_then(move |subservices| {
         let (tx, rx) = futures::oneshot();
         let v = subservices.clone();
-        to_future(rx, start_forwarder(cfg2.clone(), tx))
+        to_future(rx, start_forwarder(cfg2.clone(), domains, tx))
             .and_then(|ctl| {
                 subservices.borrow_mut().push(ctl);
                 Ok(subservices)

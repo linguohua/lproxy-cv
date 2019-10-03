@@ -43,7 +43,7 @@ pub struct Forwarder {
 }
 
 impl Forwarder {
-    pub fn new(cfg: &TunCfg) -> Rc<RefCell<Forwarder>> {
+    pub fn new(cfg: &TunCfg, domain_array: Vec<String>) -> Rc<RefCell<Forwarder>> {
         let capacity = cfg.dns_tunnel_number;
 
         let mut vec = Vec::with_capacity(capacity);
@@ -52,12 +52,13 @@ impl Forwarder {
         }
 
         let mut domap = DomainMap::new();
-        for it in cfg.domain_array.iter() {
+        for it in domain_array.iter() {
             domap.insert(&it);
         }
+
         info!(
             "[Forwarder]insert {} domain into domap",
-            cfg.domain_array.len()
+            domain_array.len()
         );
 
         Rc::new(RefCell::new(Forwarder {
