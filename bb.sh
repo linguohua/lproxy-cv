@@ -21,7 +21,7 @@ export HOST_CC=gcc
 export MIPS_UNKNOWN_LINUX_MUSL_OPENSSL_DIR=$TARGET_DIR/usr/
 export PKG_CONFIG_ALLOW_CROSS=1
 
-cargo build --target mipsel-unknown-linux-musl --release
+#cargo build --target mipsel-unknown-linux-musl --release
 
-#RUSTFLAGS='-C link-arg=-s' cargo build --target mipsel-unknown-linux-musl --release
+RUSTFLAGS='-C link-arg=-s' cargo build --target mipsel-unknown-linux-musl --release
 
