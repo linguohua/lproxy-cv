@@ -63,7 +63,7 @@ impl DnsTunnel {
             return;
         }
 
-        let bs = msg.into_data();
+        let mut bs = msg.into_data();
         let len = bs.len();
         if len < 6 {
             error!("[DnsTunnel]on_tunnel_msg data length({}) != 8", len);
@@ -76,26 +76,33 @@ impl DnsTunnel {
                 let port = bs.read_with::<u16>(offset, LE).unwrap();
                 let ip32 = bs.read_with::<u32>(offset, LE).unwrap();
                 info!("[DnsTunnel]on_tunnel_msg, port:{}, ip:{}", port, ip32);
-                let content = &bs[6..];
 
-                // parse dns reponse and store to ipset
-                // let buf = &mut bf.buf[0..message.len()];
-                let mut bf = BytePacketBuffer::new(content);
-                // buf.copy_from_slice();
-                let dnspacket = DnsPacket::from_buffer(&mut bf);
-                match dnspacket {
-                    Ok(p) => {
-                        fw.save_ipset(&p);
-                    }
+                {
+                    let content = &mut bs[6..];
 
-                    Err(e) => {
-                        error!("[Forwarder]parse dns packet failed:{}", e);
+                    // parse dns reponse and store to ipset
+                    // let buf = &mut bf.buf[0..message.len()];
+                    let mut bf = BytePacketBuffer::new(content);
+                    // buf.copy_from_slice();
+                    let dnspacket = DnsPacket::from_buffer(&mut bf);
+                    match dnspacket {
+                        Ok(p) => {
+                            fw.save_ipset(&p);
+                        }
+
+                        Err(e) => {
+                            error!("[Forwarder]parse dns packet failed:{}", e);
+                        }
                     }
                 }
 
-                let sockaddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::from(ip32)), port);
-                tx.unbounded_send((bytes::Bytes::from(content), sockaddr))
-                    .unwrap(); // udp send should not failed!
+                {
+                    let content2 = &bs[6..];
+                    let sockaddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::from(ip32)), port);
+
+                    tx.unbounded_send((bytes::Bytes::from(content2), sockaddr))
+                        .unwrap(); // udp send should not failed!
+                }
             }
             None => {}
         }

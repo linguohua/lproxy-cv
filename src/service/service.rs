@@ -1,4 +1,4 @@
-use crate::config::{self, CFG_MONITOR_INTERVAL};
+use crate::config::{self, CFG_MONITOR_INTERVAL, DEFAULT_DNS_SERVER};
 use crate::htp;
 use futures::sync::mpsc::UnboundedSender;
 use log::{debug, error, info};
@@ -153,7 +153,10 @@ impl Service {
     fn do_auth(s: LongLive) {
         info!("[Service]do_auth");
         let httpserver = config::server_url();
-        let req = htp::HTTPRequest::new(&httpserver).unwrap();
+        let dns_server = Some(DEFAULT_DNS_SERVER.to_string());
+        let req =
+            htp::HTTPRequest::new(&httpserver, Some(Duration::from_secs(10)), dns_server).unwrap();
+
         let sclone = s.clone();
         let ar = config::AuthReq {
             uuid: "abc-efg-hij-klm".to_string(),
@@ -172,7 +175,10 @@ impl Service {
                         let mut rf = sclone.borrow_mut();
                         rf.domains = Some(cfg.domain_array.take().unwrap());
 
-                        info!("[Service]do_auth http response, tunnel count:{}, req cap:{}", cfg.tunnel_number, cfg.tunnel_req_cap);
+                        info!(
+                            "[Service]do_auth http response, tunnel count:{}, req cap:{}",
+                            cfg.tunnel_number, cfg.tunnel_req_cap
+                        );
 
                         rf.save_cfg(cfg);
                         rf.fire_instruction(Instruction::StartSubServices);
@@ -209,7 +215,7 @@ impl Service {
         info!("[Service]do_cfg_monitor");
 
         let httpserver = config::server_url();
-        let req = htp::HTTPRequest::new(&httpserver).unwrap();
+        let req = htp::HTTPRequest::new(&httpserver, Some(Duration::from_secs(10)), None).unwrap();
         let sclone = s.clone();
         let fut = req
             .exec(None)

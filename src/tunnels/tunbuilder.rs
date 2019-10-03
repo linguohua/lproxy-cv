@@ -27,6 +27,8 @@ pub fn connect(tm: &TunMgr, mgr2: Rc<RefCell<TunMgr>>, index: usize) {
     let mut config = WebSocketConfig::default();
     config.max_send_queue = Some(64);
 
+    info!("[tunbuilder]WebSocket connect to:{}, port:{}", relay_domain, relay_port);
+
     // TODO: need to specify address and port
     let client = ws_connect_async(relay_domain, relay_port, url, Some(config))
         .and_then(move |(ws_stream, rawfd)| {

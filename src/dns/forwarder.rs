@@ -219,7 +219,7 @@ impl Forwarder {
 
     pub fn on_resolver_udp_msg(
         &self,
-        message: bytes::BytesMut,
+        mut message: bytes::BytesMut,
         _addr: &std::net::SocketAddr,
     ) -> bool {
         if self.discarded != false {
@@ -231,7 +231,7 @@ impl Forwarder {
         }
 
         // parse dns reply, extract idendity and query name
-        let mut bf = BytePacketBuffer::new(message.as_ref());
+        let mut bf = BytePacketBuffer::new(message.as_mut());
         // buf.copy_from_slice();
         let dnspacket = DnsPacket::from_buffer(&mut bf);
         match dnspacket {
@@ -268,7 +268,7 @@ impl Forwarder {
         true
     }
 
-    pub fn on_dns_udp_msg(&self, message: bytes::BytesMut, src_addr: std::net::SocketAddr) -> bool {
+    pub fn on_dns_udp_msg(&self, mut message: bytes::BytesMut, src_addr: std::net::SocketAddr) -> bool {
         if self.discarded != false {
             error!("[Forwarder]on_dns_udp_msg, forwarder is discarded, request will be discarded");
 
@@ -276,7 +276,7 @@ impl Forwarder {
         }
 
         // let buf = &mut bf.buf[0..message.len()];
-        let mut bf = BytePacketBuffer::new(message.as_ref());
+        let mut bf = BytePacketBuffer::new(message.as_mut());
         // buf.copy_from_slice();
         let dnspacket = DnsPacket::from_buffer(&mut bf);
         match dnspacket {

@@ -1,14 +1,38 @@
 use failure::Error;
+use futures::future::ok;
 use futures::future::Either;
 use futures::Future;
+use std::net::IpAddr;
+use tokio_dns::IoFuture;
 // use log::info;
+use crate::dns::query;
 use native_tls::TlsConnector;
 use std::io;
+use std::time::Duration;
+use tokio::prelude::FutureExt;
 use url::Url;
+
+pub struct MyResolver<'a> {
+    dns_server: &'a str,
+}
+
+impl<'a> MyResolver<'_> {
+    pub fn new(dns_server: &str) -> MyResolver {
+        MyResolver { dns_server }
+    }
+}
+
+impl<'a> tokio_dns::Resolver for MyResolver<'_> {
+    fn resolve(&self, host: &str) -> IoFuture<Vec<IpAddr>> {
+        Box::new(ok(query(host, self.dns_server)))
+    }
+}
 
 #[derive(Debug)]
 pub struct HTTPRequest {
     url_parsed: Url,
+    timeout: Duration,
+    pub dns_server: Option<String>,
 }
 
 #[derive(Debug)]
@@ -19,10 +43,19 @@ pub struct HTTPResponse {
 }
 
 impl HTTPRequest {
-    pub fn new(url: &str) -> Result<HTTPRequest, Error> {
+    pub fn new(url: &str, timeout2: Option<Duration>, dns_server:Option<String>) -> Result<HTTPRequest, Error> {
         let urlparsed = Url::parse(url)?;
+        let timeout;
+        if timeout2.is_some() {
+            timeout = timeout2.unwrap();
+        } else {
+            timeout = Duration::from_secs(10000000000);
+        }
+
         Ok(HTTPRequest {
             url_parsed: urlparsed,
+            timeout,
+            dns_server,
         })
     }
 
@@ -48,8 +81,15 @@ impl HTTPRequest {
         }
 
         let head_str = self.to_http_header(content_size);
+        let fut;
+        if self.dns_server.is_some() {
+            let resolver = MyResolver::new(self.dns_server.as_ref().unwrap());
+            fut = tokio_dns::TcpStream::connect_with((host, port), resolver);
+        } else {
+            fut = tokio_dns::TcpStream::connect((host, port));
+        }
 
-        let fut = tokio_dns::TcpStream::connect((host, port))
+        let fut = fut
             .map_err(|e| e.into())
             .and_then(move |socket| {
                 let vec;
@@ -73,7 +113,15 @@ impl HTTPRequest {
                 response
             });
 
-        fut
+        fut.timeout(self.timeout).map_err(|err| {
+            if err.is_elapsed() {
+                failure::err_msg("request timeout")
+            } else if let Some(inner) = err.into_inner() {
+                inner
+            } else {
+                failure::err_msg("timer error")
+            }
+        })
     }
 
     fn https_exec(&self, body: Option<String>) -> impl Future<Item = HTTPResponse, Error = Error> {
@@ -94,37 +142,51 @@ impl HTTPRequest {
         let cx = tokio_tls::TlsConnector::from(cx);
         let host_str = host.to_string();
 
-        let fut = tokio_dns::TcpStream::connect((host, port))
-            .map_err(|e| e.into())
-            .and_then(move |socket| {
-                let tls_handshake = cx
-                    .connect(&host_str, socket)
-                    .map_err(|e| io::Error::new(io::ErrorKind::Other, e));
+        let fut;
+        if self.dns_server.is_some() {
+            let resolver = MyResolver::new(self.dns_server.as_ref().unwrap());
+            fut = tokio_dns::TcpStream::connect_with((host, port), resolver);
+        } else {
+            fut = tokio_dns::TcpStream::connect((host, port));
+        }
 
-                let request = tls_handshake.and_then(move |socket| {
-                    let vec;
-                    if let Some(s) = body {
-                        vec = Vec::from(([head_str, s].concat()).as_bytes());
-                    } else {
-                        vec = Vec::from(head_str.as_bytes());
-                    }
-                    tokio_io::io::write_all(socket, vec)
-                });
+        let fut = fut.map_err(|e| e.into()).and_then(move |socket| {
+            let tls_handshake = cx
+                .connect(&host_str, socket)
+                .map_err(|e| io::Error::new(io::ErrorKind::Other, e));
 
-                let response =
-                    request.and_then(|(socket, _)| tokio_io::io::read_to_end(socket, Vec::new()));
-
-                let response = response
-                    .and_then(|arg| {
-                        let resp = HTTPResponse::parse(&arg.1);
-                        Ok(resp)
-                    })
-                    .map_err(|e| Error::from(e));
-
-                response
+            let request = tls_handshake.and_then(move |socket| {
+                let vec;
+                if let Some(s) = body {
+                    vec = Vec::from(([head_str, s].concat()).as_bytes());
+                } else {
+                    vec = Vec::from(head_str.as_bytes());
+                }
+                tokio_io::io::write_all(socket, vec)
             });
 
-        fut
+            let response =
+                request.and_then(|(socket, _)| tokio_io::io::read_to_end(socket, Vec::new()));
+
+            let response = response
+                .and_then(|arg| {
+                    let resp = HTTPResponse::parse(&arg.1);
+                    Ok(resp)
+                })
+                .map_err(|e| Error::from(e));
+
+            response
+        });
+
+        fut.timeout(self.timeout).map_err(|err| {
+            if err.is_elapsed() {
+                failure::err_msg("request timeout")
+            } else if let Some(inner) = err.into_inner() {
+                inner
+            } else {
+                failure::err_msg("timer error")
+            }
+        })
     }
 
     fn is_secure(&self) -> bool {
