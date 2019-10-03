@@ -5,7 +5,9 @@ use super::netlink::{construct_ipset_packet, NLSocket};
 use super::DnsTunnel;
 use super::LocalResolver;
 use super::UdpServer;
-use crate::config::{TunCfg, IPSET_TABLE_NULL, KEEP_ALIVE_INTERVAL};
+use crate::config::{
+    TunCfg, IPSET_TABLE_NULL, KEEP_ALIVE_INTERVAL, LOCAL_SERVER, LOCAL_SERVER_PORT,
+};
 use failure::Error;
 use log::{debug, error, info};
 use std::cell::RefCell;
@@ -56,20 +58,19 @@ impl Forwarder {
             domap.insert(&it);
         }
 
-        info!(
-            "[Forwarder]insert {} domain into domap",
-            domain_array.len()
-        );
+        info!("[Forwarder]insert {} domain into domap", domain_array.len());
 
+        let local_addr = format!("{}:{}", LOCAL_SERVER, LOCAL_SERVER_PORT);
+        let dns_server = UdpServer::new(&local_addr);
         Rc::new(RefCell::new(Forwarder {
-            udp_addr: cfg.dns_udp_addr.to_string(),
+            udp_addr: local_addr,
             dns_tun_url: cfg.dns_tun_url.to_string(),
             relay_domain: cfg.relay_domain.to_string(),
             relay_port: cfg.relay_port,
             tunnels: vec,
             reconnect_queue: Vec::with_capacity(capacity),
             capacity: capacity,
-            server: UdpServer::new(&cfg.dns_udp_addr),
+            server: dns_server,
             discarded: false,
             keepalive_trigger: None,
             domap,
@@ -268,7 +269,11 @@ impl Forwarder {
         true
     }
 
-    pub fn on_dns_udp_msg(&self, mut message: bytes::BytesMut, src_addr: std::net::SocketAddr) -> bool {
+    pub fn on_dns_udp_msg(
+        &self,
+        mut message: bytes::BytesMut,
+        src_addr: std::net::SocketAddr,
+    ) -> bool {
         if self.discarded != false {
             error!("[Forwarder]on_dns_udp_msg, forwarder is discarded, request will be discarded");
 

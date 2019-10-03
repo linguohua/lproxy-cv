@@ -89,6 +89,9 @@ impl Service {
             self.fire_instruction(Instruction::Auth);
 
             current_thread::spawn(fut);
+
+            // replace uci dnsmasq forward server to default
+            super::set_uci_dnsmasq_to_default();
         } else {
             panic!("[Service] start failed, state not stopped");
         }
@@ -312,6 +315,9 @@ impl Service {
             });
 
         current_thread::spawn(fut);
+
+        // enable uci dnsmasq forward server, point to this
+        super::set_uci_dnsmasq_to_me();
     }
 
     fn do_restart(s1: LongLive) {

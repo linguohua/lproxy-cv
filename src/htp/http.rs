@@ -43,7 +43,11 @@ pub struct HTTPResponse {
 }
 
 impl HTTPRequest {
-    pub fn new(url: &str, timeout2: Option<Duration>, dns_server:Option<String>) -> Result<HTTPRequest, Error> {
+    pub fn new(
+        url: &str,
+        timeout2: Option<Duration>,
+        dns_server: Option<String>,
+    ) -> Result<HTTPRequest, Error> {
         let urlparsed = Url::parse(url)?;
         let timeout;
         if timeout2.is_some() {
@@ -89,29 +93,27 @@ impl HTTPRequest {
             fut = tokio_dns::TcpStream::connect((host, port));
         }
 
-        let fut = fut
-            .map_err(|e| e.into())
-            .and_then(move |socket| {
-                let vec;
-                if let Some(s) = body {
-                    vec = Vec::from(([head_str, s].concat()).as_bytes());
-                } else {
-                    vec = Vec::from(head_str.as_bytes());
-                }
+        let fut = fut.map_err(|e| e.into()).and_then(move |socket| {
+            let vec;
+            if let Some(s) = body {
+                vec = Vec::from(([head_str, s].concat()).as_bytes());
+            } else {
+                vec = Vec::from(head_str.as_bytes());
+            }
 
-                let request = tokio_io::io::write_all(socket, vec);
-                let response =
-                    request.and_then(|(socket, _)| tokio_io::io::read_to_end(socket, Vec::new()));
+            let request = tokio_io::io::write_all(socket, vec);
+            let response =
+                request.and_then(|(socket, _)| tokio_io::io::read_to_end(socket, Vec::new()));
 
-                let response = response
-                    .and_then(|arg| {
-                        let resp = HTTPResponse::parse(&arg.1);
-                        Ok(resp)
-                    })
-                    .map_err(|e| Error::from(e));
+            let response = response
+                .and_then(|arg| {
+                    let resp = HTTPResponse::parse(&arg.1);
+                    Ok(resp)
+                })
+                .map_err(|e| Error::from(e));
 
-                response
-            });
+            response
+        });
 
         fut.timeout(self.timeout).map_err(|err| {
             if err.is_elapsed() {

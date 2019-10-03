@@ -40,7 +40,11 @@ pub struct TunMgrStub {
     pub ctl_tx: UnboundedSender<SubServiceCtlCmd>,
 }
 
-fn start_forwarder(cfg: Arc<TunCfg>, domains: Vec<String>, r_tx: futures::Complete<bool>) -> SubServiceCtl {
+fn start_forwarder(
+    cfg: Arc<TunCfg>,
+    domains: Vec<String>,
+    r_tx: futures::Complete<bool>,
+) -> SubServiceCtl {
     let (tx, rx) = unbounded();
     let handler = std::thread::spawn(move || {
         let mut rt = Runtime::new().unwrap();
@@ -232,7 +236,10 @@ fn start_tunmgr(cfg: std::sync::Arc<TunCfg>) -> impl Future<Item = SubsctlVec, E
     fut
 }
 
-pub fn start_subservice(cfg: std::sync::Arc<TunCfg>, domains: Vec<String> ) -> impl Future<Item = SubsctlVec, Error = ()> {
+pub fn start_subservice(
+    cfg: std::sync::Arc<TunCfg>,
+    domains: Vec<String>,
+) -> impl Future<Item = SubsctlVec, Error = ()> {
     let cfg2 = cfg.clone();
 
     // start tunmgr first

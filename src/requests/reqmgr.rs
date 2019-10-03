@@ -1,5 +1,6 @@
 use super::Server;
 use crate::config::TunCfg;
+use crate::config::{LOCAL_SERVER, LOCAL_SERVER_PORT};
 use crate::service::SubServiceCtlCmd;
 use crate::service::TunMgrStub;
 use failure::Error;
@@ -18,11 +19,11 @@ pub struct ReqMgr {
 }
 
 impl ReqMgr {
-    pub fn new(cfg: &TunCfg, tmstub: Vec<TunMgrStub>) -> LongLive {
+    pub fn new(_cfg: &TunCfg, tmstub: Vec<TunMgrStub>) -> LongLive {
         info!("[ReqMgr]new ReqMgr");
-
+        let local_addr = format!("{}:{}", LOCAL_SERVER, LOCAL_SERVER_PORT);
         Rc::new(RefCell::new(ReqMgr {
-            server: Server::new(&cfg.local_server),
+            server: Server::new(&local_addr),
             tmstub: tmstub,
             tmindex: 0,
         }))

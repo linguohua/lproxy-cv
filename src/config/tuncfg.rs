@@ -7,13 +7,12 @@ use std::fmt;
 pub struct TunCfg {
     pub tunnel_number: usize,
     pub websocket_url: String,
-    pub local_server: String,
+
     // pub local_tcp_port: u16,
     pub tunnel_req_cap: usize,
     pub relay_domain: String,
     pub relay_port: u16,
 
-    pub dns_udp_addr: String,
     pub dns_tun_url: String,
     pub dns_tunnel_number: usize,
 
@@ -81,10 +80,10 @@ impl AuthResp {
                 None => "wss://127.0.0.1/tun".to_string(),
             };
 
-            let local_server = match v_tuncfg["local_server"].as_str() {
-                Some(t) => t.to_string(),
-                None => "127.0.0.1:5000".to_string(),
-            };
+            // let local_server = match v_tuncfg["local_server"].as_str() {
+            //     Some(t) => t.to_string(),
+            //     None => "127.0.0.1:5000".to_string(),
+            // };
 
             let tunnel_req_cap = match v_tuncfg["tunnel_req_cap"].as_u64() {
                 Some(t) => t as usize,
@@ -101,10 +100,10 @@ impl AuthResp {
                 None => 12345,
             };
 
-            let dns_udp_addr = match v_tuncfg["dns_udp_addr"].as_str() {
-                Some(t) => t.to_string(),
-                None => "127.0.0.1:5000".to_string(),
-            };
+            // let dns_udp_addr = match v_tuncfg["dns_udp_addr"].as_str() {
+            //     Some(t) => t.to_string(),
+            //     None => "127.0.0.1:5000".to_string(),
+            // };
 
             let dns_tun_url = match v_tuncfg["dns_tun_url"].as_str() {
                 Some(t) => t.to_string(),
@@ -142,12 +141,12 @@ impl AuthResp {
             let tc = TunCfg {
                 tunnel_number: tunnel_number,
                 websocket_url: websocket_url,
-                local_server: local_server,
+                // local_server: local_server,
                 tunnel_req_cap: tunnel_req_cap,
                 relay_domain: relay_domain,
                 relay_port: relay_port,
                 // local_tcp_port,
-                dns_udp_addr: dns_udp_addr,
+                // dns_udp_addr: dns_udp_addr,
                 dns_tun_url: dns_tun_url,
                 dns_tunnel_number: dns_tunnel_number,
                 domain_array: Some(domain_array),

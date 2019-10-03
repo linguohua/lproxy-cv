@@ -1,13 +1,23 @@
 use super::{BytePacketBuffer, DnsPacket, DnsQuestion, DnsRecord, QueryType};
+use log::{error, info};
 use std::net::IpAddr;
 use std::net::UdpSocket;
-use log::info;
 
 pub fn query(qname: &str, dns_server: &str) -> Vec<IpAddr> {
     let qtype = QueryType::A;
     let server = (dns_server, 53);
+    let mut result: Vec<IpAddr> = Vec::new();
 
-    let socket = UdpSocket::bind(("0.0.0.0", 43210)).unwrap();
+    let socket = UdpSocket::bind(("0.0.0.0", 43210));
+    if socket.is_err() {
+        error!("[DnsQuery]UdpSocket::bind failed, name:{}", qname);
+        return result;
+    }
+
+    let socket = socket.unwrap();
+    socket
+        .set_read_timeout(Some(std::time::Duration::from_secs(2)))
+        .unwrap(); // should not failed
 
     let mut packet = DnsPacket::new();
 
@@ -20,19 +30,16 @@ pub fn query(qname: &str, dns_server: &str) -> Vec<IpAddr> {
 
     let mut reqbuff = vec![0 as u8; 512];
     let mut req_buffer = BytePacketBuffer::new(&mut reqbuff);
-    packet.write(&mut req_buffer).unwrap();
-    socket
-        .send_to(&req_buffer.buf[0..req_buffer.pos], server)
-        .unwrap();
+    packet.write(&mut req_buffer).unwrap(); // should not failed
 
-    socket
-        .set_read_timeout(Some(std::time::Duration::from_secs(2)))
-        .unwrap();
+    if let Err(e) = socket.send_to(&req_buffer.buf[0..req_buffer.pos], server) {
+        error!("[DnsQuery]send to failed, name:{}, error:{}", qname, e);
+        return result;
+    }
 
     let mut rspbuff = vec![0 as u8; 512];
     let mut res_buffer = BytePacketBuffer::new(&mut rspbuff);
 
-    let mut result: Vec<IpAddr> = Vec::new();
     if let Ok(_) = socket.recv_from(&mut res_buffer.buf) {
         let res_packet = DnsPacket::from_buffer(&mut res_buffer).unwrap();
 
@@ -50,7 +57,10 @@ pub fn query(qname: &str, dns_server: &str) -> Vec<IpAddr> {
         }
     }
 
-    info!("[DnsQuery]name:{}, server:{}, response:{:?}", qname, dns_server, result);
+    info!(
+        "[DnsQuery]name:{}, server:{}, response:{:?}",
+        qname, dns_server, result
+    );
 
     result
 }
