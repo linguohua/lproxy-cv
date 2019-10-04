@@ -3,7 +3,8 @@ use crate::config::{DEFAULT_DNS_SERVER, LOCAL_SERVER, LOCAL_SERVER_PORT};
 
 pub fn set_uci_dnsmasq_to_default() {
     let arg = format!(
-        "uci -q set dhcp.@dnsmasq[0].server=\"{}\";\
+        "uci -q delete dhcp.@dnsmasq[0].server;\
+         uci -q add_list dhcp.@dnsmasq[0].server=\"{}\";\
          uci commit dhcp;\
          /etc/init.d/dnsmasq restart",
         DEFAULT_DNS_SERVER
@@ -17,7 +18,8 @@ pub fn set_uci_dnsmasq_to_default() {
 
 pub fn set_uci_dnsmasq_to_me() {
     let arg = format!(
-        "uci -q set dhcp.@dnsmasq[0].server=\"{}#{}\";\
+        "uci -q delete dhcp.@dnsmasq[0].server;\
+         uci -q add_list dhcp.@dnsmasq[0].server=\"{}#{}\";\
          uci commit dhcp;\
          /etc/init.d/dnsmasq restart",
         LOCAL_SERVER, LOCAL_SERVER_PORT

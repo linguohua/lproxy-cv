@@ -237,13 +237,13 @@ impl Service {
                 Ok(())
             })
             .or_else(move |e| {
-                let seconds = 5;
+                let seconds = 30;
                 error!(
                     "[Service]do_cfg_monitor http request failed, error:{}, retry {} seconds later",
                     e, seconds
                 );
 
-                Service::delay_post_instruction(s.clone(), seconds, Instruction::Auth);
+                Service::delay_post_instruction(s.clone(), seconds, Instruction::ServerCfgMonitor);
 
                 Ok(())
             });
