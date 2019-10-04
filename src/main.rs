@@ -18,9 +18,9 @@ use std::io::Write;
 use std::process;
 use tokio::runtime::current_thread::Runtime;
 
-const PIDFILE: &'static str = "/var/run/lproxy-cv.pid";
-const LOCKFILE: &'static str = "/var/run/lproxy-cv.lock";
-const VERSION: &'static str = env!("CARGO_PKG_VERSION");
+pub const PIDFILE: &'static str = "/var/run/lproxy-cv.pid";
+pub const LOCKFILE: &'static str = "/var/run/lproxy-cv.lock";
+pub const VERSION: &'static str = env!("CARGO_PKG_VERSION");
 
 fn main() {
     config::log_init().unwrap();

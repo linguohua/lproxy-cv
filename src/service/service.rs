@@ -1,4 +1,4 @@
-use crate::config::{self, CFG_MONITOR_INTERVAL, DEFAULT_DNS_SERVER};
+use crate::config::{self, CFG_MONITOR_INTERVAL, DEFAULT_DNS_SERVER, LPROXY_SCRIPT};
 use crate::htp;
 use futures::sync::mpsc::UnboundedSender;
 use log::{debug, error, info};
@@ -100,10 +100,10 @@ impl Service {
 
     pub fn stop(&mut self) {
         info!("[Service]stop");
-        if self.state != STATE_RUNNING {
-            error!("[Service] do_restart failed, state not running");
-            return;
-        }
+        // if self.state != STATE_RUNNING {
+        //     error!("[Service] stop failed, state not running");
+        //     return;
+        // }
 
         self.state = STATE_STOPPING;
 
@@ -177,6 +177,7 @@ impl Service {
         let sclone = s.clone();
         let ar = config::AuthReq {
             uuid: "abc-efg-hij-klm".to_string(),
+            current_version: crate::VERSION.to_string(),
         };
 
         let arstr = ar.to_json_str();
@@ -195,7 +196,8 @@ impl Service {
                         } else {
                             let sclone2 = sclone.clone();
                             let mut rf = sclone.borrow_mut();
-                            rf.do_download(sclone2, dir.unwrap(), &rsp.upgrade_url);
+                            let dir = dir.unwrap();
+                            rf.do_download(sclone2, dir.0, dir.1, &rsp.upgrade_url);
                         }
                     } else if rsp.tuncfg.is_some() {
                         let mut cfg = rsp.tuncfg.take().unwrap();
@@ -243,7 +245,15 @@ impl Service {
         info!("[Service]do_cfg_monitor");
 
         let httpserver = config::server_url();
-        let req = htp::HTTPRequest::new(&httpserver, Some(Duration::from_secs(10)), None).unwrap();
+        let ar = config::AuthReq {
+            uuid: "abc-efg-hij-klm".to_string(),
+            current_version: crate::VERSION.to_string(),
+        };
+
+        let arstr = ar.to_json_str();
+        let req =
+            htp::HTTPRequest::new(&httpserver, Some(Duration::from_secs(10)), Some(arstr)).unwrap();
+
         let sclone = s.clone();
         let fut = req
             .exec(None)
@@ -270,7 +280,8 @@ impl Service {
                             //
                             let sclone2 = sclone.clone();
                             let mut rf = sclone.borrow_mut();
-                            rf.do_download(sclone2, dir.unwrap(), &rsp.upgrade_url);
+                            let dir = dir.unwrap();
+                            rf.do_download(sclone2, dir.0, dir.1, &rsp.upgrade_url);
                         }
                     }
                 }
@@ -286,7 +297,7 @@ impl Service {
         current_thread::spawn(fut);
     }
 
-    fn do_download(&mut self, s: LongLive, filepath: PathBuf, url: &str) {
+    fn do_download(&mut self, s: LongLive, filepath: PathBuf, scriptpath: PathBuf, url: &str) {
         if self.is_upgrading {
             error!("[Service] upgrade: download failed, another fut is running");
             return;
@@ -319,6 +330,8 @@ impl Service {
                                         // change file's permission
                                         info!("[Service] upgrade: write to file ok, now chmod");
                                         super::fileto_excecutable(filepath.to_str().unwrap());
+                                        // trigger restart bash script
+                                        super::call_bash_to_restart(scriptpath.to_str().unwrap());
                                     }
                                 }
                             }
@@ -341,19 +354,21 @@ impl Service {
         current_thread::spawn(fut);
     }
 
-    fn get_upgrade_target_filepath() -> Option<PathBuf> {
+    fn get_upgrade_target_filepath() -> Option<(PathBuf, PathBuf)> {
         let dir = env::current_exe().unwrap();
         let p = Path::new(&dir);
         let parent = p.parent().unwrap();
 
         if parent.ends_with("b") {
-            let parent = parent.parent().unwrap();
-            let dir = parent.join("a/lproxy-cv");
-            return Some(dir);
+            let parent1 = parent.parent().unwrap();
+            let dir1 = parent1.join("a/lproxy-cv");
+            let dir2 = parent1.join(LPROXY_SCRIPT);
+            return Some((dir1, dir2));
         } else if parent.ends_with("a") {
-            let parent = parent.parent().unwrap();
-            let dir = parent.join("b/lproxy-cv");
-            return Some(dir);
+            let parent1 = parent.parent().unwrap();
+            let dir1 = parent1.join("b/lproxy-cv");
+            let dir2 = parent1.join(LPROXY_SCRIPT);
+            return Some((dir1, dir2));
         }
 
         None

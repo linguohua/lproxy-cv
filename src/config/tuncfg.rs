@@ -1,6 +1,3 @@
-pub const KEEP_ALIVE_INTERVAL: u64 = 15 * 1000;
-pub const CFG_MONITOR_INTERVAL: u64 = 60 * 1000;
-
 use std::fmt;
 
 #[derive(Debug)]
@@ -43,11 +40,15 @@ pub fn server_url() -> String {
 
 pub struct AuthReq {
     pub uuid: String,
+    pub current_version: String,
 }
 
 impl AuthReq {
     pub fn to_json_str(&self) -> String {
-        format!("{{\"uuid\":\"{}\"}}", self.uuid)
+        format!(
+            "{{\"uuid\":\"{}\",\"current_version\":\"{}\"}}",
+            self.uuid, self.current_version
+        )
     }
 }
 

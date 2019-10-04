@@ -57,3 +57,13 @@ pub fn fileto_excecutable(filepath: &str) {
         Err(_) => {}
     }
 }
+
+pub fn call_bash_to_restart(filepath: &str) {
+    let arg = format!("{} restart", filepath);
+    match Command::new("sh").args(&["-c", &arg]).spawn() {
+        Err(e) => {
+            error!("bash execute call_bash_to_restart failed:{}", e);
+        }
+        _ => {}
+    }
+}
