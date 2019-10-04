@@ -50,6 +50,7 @@ pub struct Service {
     monitor_trigger: Option<Trigger>,
     instruction_trigger: Option<Trigger>,
     domains: Option<Vec<String>>,
+    is_upgrading: bool,
 }
 
 impl Service {
@@ -62,6 +63,7 @@ impl Service {
             instruction_trigger: None,
             state: 0,
             domains: None,
+            is_upgrading: false,
         }))
     }
 
@@ -91,9 +93,6 @@ impl Service {
             self.fire_instruction(Instruction::Auth);
 
             current_thread::spawn(fut);
-
-            // replace uci dnsmasq forward server to default
-            super::set_uci_dnsmasq_to_default();
         } else {
             panic!("[Service] start failed, state not stopped");
         }
@@ -158,6 +157,18 @@ impl Service {
 
     fn do_auth(s: LongLive) {
         info!("[Service]do_auth");
+        {
+            if s.borrow().is_upgrading {
+                let seconds = 30;
+                error!(
+                    "[Service]do_auth, in upgrading, retry {} seconds later",
+                    seconds
+                );
+                Service::delay_post_instruction(s.clone(), seconds, Instruction::Auth);
+                return;
+            }
+        }
+
         let httpserver = config::server_url();
         let dns_server = Some(DEFAULT_DNS_SERVER.to_string());
         let req =
@@ -176,7 +187,17 @@ impl Service {
 
                 let mut retry = true;
                 if let Some(mut rsp) = Service::parse_auth_reply(&response) {
-                    if rsp.tuncfg.is_some() {
+                    // first check if we need upgrade
+                    if rsp.need_upgrade && rsp.upgrade_url.len() > 0 {
+                        let dir = Service::get_upgrade_target_filepath();
+                        if dir.is_none() {
+                            error!("[Service]do_auth, failed to upgrade, no target dir found");
+                        } else {
+                            let sclone2 = sclone.clone();
+                            let mut rf = sclone.borrow_mut();
+                            rf.do_download(sclone2, dir.unwrap(), &rsp.upgrade_url);
+                        }
+                    } else if rsp.tuncfg.is_some() {
                         let mut cfg = rsp.tuncfg.take().unwrap();
                         let mut rf = sclone.borrow_mut();
                         rf.domains = Some(cfg.domain_array.take().unwrap());
@@ -189,15 +210,16 @@ impl Service {
                         rf.save_cfg(cfg);
                         rf.fire_instruction(Instruction::StartSubServices);
                         retry = false;
+                    } else {
+                        error!("[Service]do_auth http request failed, no tuncfg, retry later");
                     }
+                } else {
+                    error!("[Service]do_auth http request failed, no body, retry later");
                 }
 
                 if retry {
                     let seconds = 30;
-                    error!(
-                        "[Service]do_auth http request failed, no body, retry {} seconds later",
-                        seconds
-                    );
+                    error!("[Service]do_auth retry {} seconds later", seconds);
                     Service::delay_post_instruction(sclone.clone(), seconds, Instruction::Auth);
                 }
                 Ok(())
@@ -246,8 +268,9 @@ impl Service {
                             );
                         } else {
                             //
-                            let rf = sclone.borrow();
-                            rf.do_download(dir.unwrap(), &rsp.upgrade_url);
+                            let sclone2 = sclone.clone();
+                            let mut rf = sclone.borrow_mut();
+                            rf.do_download(sclone2, dir.unwrap(), &rsp.upgrade_url);
                         }
                     }
                 }
@@ -263,7 +286,15 @@ impl Service {
         current_thread::spawn(fut);
     }
 
-    fn do_download(&self, filepath: PathBuf, url: &str) {
+    fn do_download(&mut self, s: LongLive, filepath: PathBuf, url: &str) {
+        if self.is_upgrading {
+            error!("[Service] upgrade: download failed, another fut is running");
+            return;
+        }
+
+        self.is_upgrading = true;
+        let sclone = s.clone();
+
         let req = htp::HTTPRequest::new(url, Some(Duration::from_secs(30)), None).unwrap();
         let fut = req
             .exec(None)
@@ -298,11 +329,12 @@ impl Service {
                     }
                 }
 
+                s.borrow_mut().is_upgrading = false;
                 Ok(())
             })
             .or_else(move |e| {
                 error!("[Service]upgrade: http request failed, error:{}", e);
-
+                sclone.borrow_mut().is_upgrading = false;
                 Ok(())
             });
 
@@ -445,6 +477,9 @@ impl Service {
         info!("[Service]restore_sys");
         super::iptable_rule::unset_iptables_rules();
         super::ip_rules::unset_ip_rules();
+
+        // replace uci dnsmasq forward server to default
+        super::set_uci_dnsmasq_to_default();
     }
 
     fn start_monitor_timer(&mut self, s2: LongLive) {
