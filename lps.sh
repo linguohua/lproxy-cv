@@ -5,68 +5,85 @@ ACOPY="$BASEDIR/a/lproxy-cv"
 BCOPY="$BASEDIR/b/lproxy-cv"
 PIDFILE="/var/run/lproxy-cv.pid"
 
+# get the version of this copy
 get_copy_version() {
-    local path=$1
+    local  __resultvar=$1
+    eval $__resultvar="0.0.0"
+    local path=$2
     if [[ -x $path ]]; then
-        echo $($path -v)
-    else
-        echo '0.0.0'
+        $path -v > /dev/null 2>&1
+        if [ $? -eq 0 ]
+        then
+            eval $__resultvar=$($path -v)
+        fi
     fi
 }
 
+# version less than or equal
 verlte() {
     [  "$1" = "`echo -e "$1\n$2" | sort -V | head -n1`" ]
 }
 
+# version less than
 verlt() {
     [ "$1" = "$2" ] && return 1 || verlte $1 $2
 }
 
+# get current copy to run with
 get_copy_run() {
-    local acopy=$(get_copy_version $ACOPY)
-    local bcopy=$(get_copy_version $BCOPY)
+    local  __resultvar=$1
+    get_copy_version result $ACOPY
+    local acopy=$result
+    get_copy_version result $BCOPY
+    local bcopy=$result
 
     if $(verlt $acopy $bcopy); then
-        echo $BCOPY
+        eval $__resultvar=$BCOPY
     else
-        echo $ACOPY
+        eval $__resultvar=$ACOPY
     fi
 }
 
+# start lproxy
 start() {
     echo 'start lproxy-cv'
     
-    local path=$(get_copy_run)
+    get_copy_run path
     $path > /dev/null 2>&1 &
     #$path
 }
 
+# stop lproxy
 stop() {
     echo 'stop lproxy-cv'
     if [[ -e $PIDFILE ]]; then
         local pid=$(cat $PIDFILE)
         if [[ -n $pid ]]; then
-            kill -s USR1 $pid 
+            kill -s USR1 $pid > /dev/null 2>&1
             local count=0
             while [ -e /proc/$pid ]
             do 
                 sleep 1
                 count=$((count+1))
+                # test if it has exited
                 if [[ $count -gt 3 ]]; then
                     count=0
-                    kill -9 $pid
+                    # force exit
+                    kill -9 $pid > /dev/null 2>&1
                 fi
             done
         fi
     fi
 }
 
+# restart
 restart() {
     echo 'restart lproxy-cv'
     stop
     start
 }
 
+# period monitor
 monitor() {
     echo 'monitor lproxy-cv'
     local needcreate=1
