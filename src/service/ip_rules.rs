@@ -48,3 +48,12 @@ pub fn do_bash_cmd(arg: &str) -> std::io::Result<bool> {
         }
     }
 }
+
+pub fn fileto_excecutable(filepath: &str) {
+    let arg = format!("chmod a+x {}", filepath);
+
+    match do_bash_cmd(&arg) {
+        Ok(_) => {}
+        Err(_) => {}
+    }
+}

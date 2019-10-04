@@ -1,5 +1,5 @@
 pub const KEEP_ALIVE_INTERVAL: u64 = 15 * 1000;
-pub const CFG_MONITOR_INTERVAL: u64 = 30 * 60 * 1000;
+pub const CFG_MONITOR_INTERVAL: u64 = 60 * 1000;
 
 use std::fmt;
 
@@ -54,6 +54,8 @@ impl AuthReq {
 pub struct AuthResp {
     pub token: String,
     pub restart: bool,
+    pub need_upgrade: bool,
+    pub upgrade_url: String,
     pub tuncfg: Option<TunCfg>,
 }
 
@@ -65,6 +67,16 @@ impl AuthResp {
         let restart = match v["restart"].as_bool() {
             Some(x) => x,
             None => false,
+        };
+
+        let need_upgrade = match v["need_upgrade"].as_bool() {
+            Some(x) => x,
+            None => false,
+        };
+
+        let upgrade_url = match v["upgrade_url"].as_str() {
+            Some(x) => x.to_string(),
+            None => String::default(),
         };
 
         let v_tuncfg = &v["tuncfg"];
@@ -160,6 +172,8 @@ impl AuthResp {
             token: v["token"].to_string(),
             restart: restart,
             tuncfg: tuncfg,
+            need_upgrade,
+            upgrade_url,
         }
     }
 }

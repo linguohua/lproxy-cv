@@ -14,6 +14,8 @@ const STATE_RUNNING: u8 = 2;
 const STATE_STOPPING: u8 = 3;
 use super::SubServiceCtl;
 use std::cell::RefCell;
+use std::env;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 type LongLive = Rc<RefCell<Service>>;
@@ -144,7 +146,8 @@ impl Service {
         }
 
         if let Some(ref body) = response.body {
-            let aresp: config::AuthResp = config::AuthResp::from_json_str(body);
+            let s2 = String::from_utf8_lossy(body).to_string();
+            let aresp: config::AuthResp = config::AuthResp::from_json_str(&s2);
             // info!("[Service]AuthResp:{:?}", aresp);
 
             return Some(aresp);
@@ -231,24 +234,97 @@ impl Service {
                         let mut rf = sclone.borrow_mut();
                         rf.save_cfg(cfg);
                         rf.fire_instruction(Instruction::Restart);
+                    } else if rsp.need_upgrade && rsp.upgrade_url.len() > 0 {
+                        // do upgrade
+                        // download from upgrade_url, save to /a or /b directory
+                        // /a or /b determise: if current is /a, the use /b; otherwise reverse
+                        // when download completed, exit, then external monitor will restart me.
+                        let dir = Service::get_upgrade_target_filepath();
+                        if dir.is_none() {
+                            error!(
+                                "[Service]do_cfg_monitor, failed to upgrade, no target dir found"
+                            );
+                        } else {
+                            //
+                            let rf = sclone.borrow();
+                            rf.do_download(dir.unwrap(), &rsp.upgrade_url);
+                        }
                     }
                 }
 
                 Ok(())
             })
             .or_else(move |e| {
-                let seconds = 30;
-                error!(
-                    "[Service]do_cfg_monitor http request failed, error:{}, retry {} seconds later",
-                    e, seconds
-                );
-
-                Service::delay_post_instruction(s.clone(), seconds, Instruction::ServerCfgMonitor);
+                error!("[Service]do_cfg_monitor http request failed, error:{}", e);
 
                 Ok(())
             });
 
         current_thread::spawn(fut);
+    }
+
+    fn do_download(&self, filepath: PathBuf, url: &str) {
+        let req = htp::HTTPRequest::new(url, Some(Duration::from_secs(30)), None).unwrap();
+        let fut = req
+            .exec(None)
+            .and_then(move |response| {
+                if response.status == 200 {
+                    if let Some(ref body) = response.body {
+                        info!(
+                            "[Service] upgrade: download file completed, len:{}, now try write to file",
+                            body.len()
+                        );
+
+                        // write to file
+                        let file = std::fs::File::create(&filepath);
+                        match file {
+                            Ok(mut f) => {
+                                let wr = f.write_all(body);
+                                match wr {
+                                    Err(e) => {
+                                        error!("[Service] upgrade: write to file failed:{}", e);
+                                    }
+                                    _ => {
+                                        // change file's permission
+                                        info!("[Service] upgrade: write to file ok, now chmod");
+                                        super::fileto_excecutable(filepath.to_str().unwrap());
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                error!("[Service] upgrade: create file failed:{}", e);
+                            }
+                        }
+                    }
+                }
+
+                Ok(())
+            })
+            .or_else(move |e| {
+                error!("[Service]upgrade: http request failed, error:{}", e);
+
+                Ok(())
+            });
+
+        current_thread::spawn(fut);
+    }
+
+    fn get_upgrade_target_filepath() -> Option<PathBuf> {
+        let dir = env::current_exe().unwrap();
+        let p = Path::new(&dir);
+        let parent = p.parent().unwrap();
+
+        if parent.ends_with("b") {
+            let parent = parent.parent().unwrap();
+            let dir = parent.join("a/lproxy-cv");
+            return Some(dir);
+        } else if parent.ends_with("a") {
+            let parent = parent.parent().unwrap();
+            let dir = parent.join("b/lproxy-cv");
+            return Some(dir);
+        }
+
+        None
     }
 
     fn delay_post_instruction(s: LongLive, seconds: u64, ins: Instruction) {

@@ -32,14 +32,14 @@ impl<'a> tokio_dns::Resolver for MyResolver<'_> {
 pub struct HTTPRequest {
     url_parsed: Url,
     timeout: Duration,
-    pub dns_server: Option<String>,
+    dns_server: Option<String>,
 }
 
 #[derive(Debug)]
 pub struct HTTPResponse {
     pub status: i32,
     pub header: Option<String>,
-    pub body: Option<String>,
+    pub body: Option<Vec<u8>>,
 }
 
 impl HTTPRequest {
@@ -74,7 +74,6 @@ impl HTTPRequest {
     fn http_exec(&self, body: Option<String>) -> impl Future<Item = HTTPResponse, Error = Error> {
         let urlparsed = &self.url_parsed;
         let host = urlparsed.host_str().unwrap();
-
         let port = urlparsed.port_or_known_default().unwrap();
 
         let content_size;
@@ -129,7 +128,6 @@ impl HTTPRequest {
     fn https_exec(&self, body: Option<String>) -> impl Future<Item = HTTPResponse, Error = Error> {
         let urlparsed = &self.url_parsed;
         let host = urlparsed.host_str().unwrap();
-
         let port = urlparsed.port_or_known_default().unwrap();
 
         let content_size;
@@ -247,12 +245,13 @@ impl HTTPResponse {
                 use flate2::read::GzDecoder;
                 use std::io::prelude::*;
                 let mut gz = GzDecoder::new(bb);
-                let mut s3 = String::new();
+                let mut s3 = Vec::<u8>::new();
                 // info!("http response is gzip");
-                gz.read_to_string(&mut s3).unwrap();
+                gz.read_to_end(&mut s3).unwrap();
                 s2 = s3;
             } else {
-                s2 = String::from_utf8_lossy(bb).to_string();
+                // s2 = String::from_utf8_lossy(bb).to_string();
+                s2 = bb.to_vec();
             }
 
             body = Some(s2);
