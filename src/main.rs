@@ -22,6 +22,20 @@ pub const PIDFILE: &'static str = "/var/run/lproxy-cv.pid";
 pub const LOCKFILE: &'static str = "/var/run/lproxy-cv.lock";
 pub const VERSION: &'static str = env!("CARGO_PKG_VERSION");
 
+fn to_version_number(ver: &str) -> usize {
+    // split
+    let splits = ver.split(".");
+    let vec: Vec<&str> = splits.collect();
+    let mut u: usize = 0;
+
+    for s in vec.iter() {
+        let uu: usize = s.parse().unwrap();
+        u = (u << 8) | uu;
+    }
+
+    u
+}
+
 fn main() {
     config::log_init().unwrap();
     let args: Vec<String> = env::args().collect();
@@ -30,6 +44,9 @@ fn main() {
         let s = args.get(1).unwrap();
         if s == "-v" {
             println!("{}", VERSION);
+            std::process::exit(0);
+        } else if s == "-vn" {
+            println!("{}", to_version_number(VERSION));
             std::process::exit(0);
         }
     }
