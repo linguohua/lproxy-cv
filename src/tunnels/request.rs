@@ -12,6 +12,8 @@ pub struct Request {
 
     pub ipv4_be: u32,
     pub port_be: u16,
+
+    pub write_out: u16,
 }
 
 impl Request {
@@ -23,6 +25,7 @@ impl Request {
             trigger: None,
             ipv4_be: 0,
             port_be: 0,
+            write_out: 0,
         }
     }
 
@@ -34,6 +37,7 @@ impl Request {
             trigger: Some(trigger),
             ipv4_be: ip,
             port_be: port,
+            write_out:0,
         }
     }
 }

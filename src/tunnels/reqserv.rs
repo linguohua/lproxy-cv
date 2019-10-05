@@ -48,7 +48,7 @@ pub fn serve_sock(socket: TcpStream, mgr: Rc<RefCell<TunMgr>>) {
     }
 
     let ipaddr = std::net::Ipv4Addr::from(ip_be); // ip_le.to_be()
-    info!("[Server]serve_sock, ip:{}, port:{}", ipaddr, port_be);
+    info!("[ReqServ]serve_sock, ip:{}, port:{}", ipaddr, port_be);
 
     // set 2 seconds write-timeout
     let mut socket = TimeoutStream::new(socket);
@@ -65,25 +65,34 @@ pub fn serve_sock(socket: TcpStream, mgr: Rc<RefCell<TunMgr>>) {
 
     if tunstub.is_none() {
         // invalid tunnel
-        error!("[Server]failed to alloc tunnel for request!");
+        error!("[ReqServ]failed to alloc tunnel for request!");
         return;
     }
 
-    info!("[Server]allocated tun:{:?}", tunstub);
+    info!("[ReqServ]allocated tun:{:?}", tunstub);
     let tunstub = Rc::new(RefCell::new(tunstub.unwrap()));
     let req_idx = tunstub.borrow().req_idx;
+    let req_tag = tunstub.borrow().req_tag;
+    let tun_idx = tunstub.borrow().tun_idx;
+
+    let mgr2 = mgr.clone();
+
+    let rx = rx.map(move |item|{
+        mgr.borrow_mut().on_request_write_out(tun_idx, req_idx, req_tag);
+        item
+    });
 
     // send future
     let send_fut = sink.send_all(rx.map_err(|e| {
-        error!("[Server]sink send_all failed:{:?}", e);
+        error!("[ReqServ]sink send_all failed:{:?}", e);
         std::io::Error::from(std::io::ErrorKind::Other)
     }));
 
     let send_fut = send_fut.and_then(move |_| {
-        info!("[Server]send_fut end, index:{}", req_idx);
+        info!("[ReqServ]send_fut end, req_idx:{}, req_tag:{}", req_idx, req_tag);
         // shutdown read direction
         if let Err(e) = shutdown(rawfd, Shutdown::Read) {
-            error!("[Server]shutdown rawfd error:{}", e);
+            error!("[ReqServ]shutdown rawfd error:{}", e);
         }
 
         Ok(())
@@ -121,9 +130,9 @@ pub fn serve_sock(socket: TcpStream, mgr: Rc<RefCell<TunMgr>>) {
         .map_err(|_| ())
         .join(send_fut.map_err(|_| ()))
         .then(move |_| {
-            info!("[ReqMgr] tcp both futures completed");
             let ts = &tunstub2.borrow();
-            mgr.borrow_mut().on_request_closed(ts);
+            info!("[ReqServ] tcp both futures completed:{:?}", ts);
+            mgr2.borrow_mut().on_request_closed(ts);
 
             Ok(())
         });
@@ -148,7 +157,7 @@ fn on_request_msg(message: BytesMut, tun: &TunStub) -> bool {
     let result = tx.unbounded_send(wmsg);
     match result {
         Err(e) => {
-            error!("[ReqMgr]request tun send error:{}, tun_tx maybe closed", e);
+            error!("[ReqServ]request tun send error:{}, tun_tx maybe closed", e);
             return false;
         }
         _ => {
@@ -163,7 +172,7 @@ fn on_request_msg(message: BytesMut, tun: &TunStub) -> bool {
 }
 
 fn on_request_recv_finished(tun: &TunStub) {
-    info!("[ReqMgr]on_request_recv_finished:{}", tun);
+    info!("[ReqServ]on_request_recv_finished:{}", tun);
 
     let hsize = THEADER_SIZE;
     let mut buf = vec![0; hsize];
@@ -179,7 +188,7 @@ fn on_request_recv_finished(tun: &TunStub) {
     match result {
         Err(e) => {
             error!(
-                "[ReqMgr]on_request_recv_finished, tun send error:{}, tun_tx maybe closed",
+                "[ReqServ]on_request_recv_finished, tun send error:{}, tun_tx maybe closed",
                 e
             );
         }

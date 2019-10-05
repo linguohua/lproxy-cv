@@ -145,7 +145,7 @@ impl TunMgr {
     }
 
     fn get_tunnel(&self, index: usize) -> TunnelItem {
-        info!("[TunMgr]get_tunnel");
+        // info!("[TunMgr]get_tunnel");
         let tunnels = &self.tunnels;
         let tun = &tunnels[index];
 
@@ -181,6 +181,18 @@ impl TunMgr {
             }
             None => {
                 error!("[TunMgr]on_request_closed:{:?}, not found", tunstub);
+            }
+        }
+    }
+
+    pub fn on_request_write_out(&mut self, tidx: u16, req_idx: u16, req_tag: u16) {
+        match self.get_tunnel(tidx as usize) {
+            Some(tun) => {
+                let mut tun = tun.borrow_mut();
+                tun.on_request_write_out(req_idx, req_tag);
+            }
+            None => {
+                error!("[TunMgr]on_request_write_out:{}, not found", tidx);
             }
         }
     }

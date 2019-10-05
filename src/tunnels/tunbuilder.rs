@@ -1,4 +1,5 @@
 use super::ws_connect_async;
+use crate::config::DEFAULT_REQ_QUOTA;
 use super::TunMgr;
 use super::Tunnel;
 use futures::{Future, Stream};
@@ -17,7 +18,7 @@ pub fn connect(tm: &TunMgr, mgr2: Rc<RefCell<TunMgr>>, index: usize) {
     let relay_port = tm.relay_port;
     let ws_url = &tm.url;
     let tunnel_req_cap = tm.tunnel_req_cap;
-    let ws_url = format!("{}?cap={}", ws_url, tunnel_req_cap);
+    let ws_url = format!("{}?cap={}&quota={}", ws_url, tunnel_req_cap, DEFAULT_REQ_QUOTA);
     let url = url::Url::parse(&ws_url).unwrap();
 
     let mgr1 = mgr2.clone();
