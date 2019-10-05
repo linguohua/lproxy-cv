@@ -132,7 +132,7 @@ pub fn serve_sock(socket: TcpStream, mgr: Rc<RefCell<TunMgr>>) {
 }
 
 fn on_request_msg(message: BytesMut, tun: &TunStub) -> bool {
-    info!("[ReqMgr]on_request_msg, tun:{}", tun);
+    // info!("[ReqMgr]on_request_msg, tun:{}", tun);
     let size = message.len();
     let hsize = THEADER_SIZE;
     let mut buf = vec![0; hsize + size];
@@ -151,10 +151,12 @@ fn on_request_msg(message: BytesMut, tun: &TunStub) -> bool {
             error!("[ReqMgr]request tun send error:{}, tun_tx maybe closed", e);
             return false;
         }
-        _ => info!(
-            "[ReqMgr]unbounded_send request msg, req_idx:{}",
-            tun.req_idx
-        ),
+        _ => {
+            //     info!(
+            //     "[ReqMgr]unbounded_send request msg, req_idx:{}",
+            //     tun.req_idx
+            // )
+        }
     }
 
     true
