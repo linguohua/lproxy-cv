@@ -71,6 +71,7 @@ impl Service {
     pub fn start(&mut self, s: LongLive) {
         if self.state == STATE_STOPPED {
             self.state = STATE_STARTING;
+            super::set_uci_dnsmasq_to_default();
 
             let (tx, rx) = futures::sync::mpsc::unbounded();
             let (trigger, tripwire) = Tripwire::new();
@@ -251,7 +252,9 @@ impl Service {
         };
 
         let arstr = ar.to_json_str();
-        let req = htp::HTTPRequest::new(&httpserver, Some(Duration::from_secs(10)), None).unwrap();
+        let dns_server = Some(DEFAULT_DNS_SERVER.to_string());
+        let req =
+            htp::HTTPRequest::new(&httpserver, Some(Duration::from_secs(10)), dns_server).unwrap();
 
         let sclone = s.clone();
         let fut = req
@@ -303,8 +306,9 @@ impl Service {
 
         self.is_upgrading = true;
         let sclone = s.clone();
+        let dns_server = Some(DEFAULT_DNS_SERVER.to_string());
 
-        let req = htp::HTTPRequest::new(url, Some(Duration::from_secs(30)), None).unwrap();
+        let req = htp::HTTPRequest::new(url, Some(Duration::from_secs(60)), dns_server).unwrap();
         let fut = req
             .exec(None)
             .and_then(move |response| {
