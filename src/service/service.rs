@@ -251,22 +251,16 @@ impl Service {
         };
 
         let arstr = ar.to_json_str();
-        let req =
-            htp::HTTPRequest::new(&httpserver, Some(Duration::from_secs(10)), Some(arstr)).unwrap();
+        let req = htp::HTTPRequest::new(&httpserver, Some(Duration::from_secs(10)), None).unwrap();
 
         let sclone = s.clone();
         let fut = req
-            .exec(None)
+            .exec(Some(arstr))
             .and_then(move |response| {
                 // debug!("[Service]do_cfg_monitor http response:{:?}", response);
 
                 if let Some(mut rsp) = Service::parse_auth_reply(&response) {
-                    if rsp.restart && rsp.tuncfg.is_some() {
-                        let cfg = rsp.tuncfg.take().unwrap();
-                        let mut rf = sclone.borrow_mut();
-                        rf.save_cfg(cfg);
-                        rf.fire_instruction(Instruction::Restart);
-                    } else if rsp.need_upgrade && rsp.upgrade_url.len() > 0 {
+                    if rsp.need_upgrade && rsp.upgrade_url.len() > 0 {
                         // do upgrade
                         // download from upgrade_url, save to /a or /b directory
                         // /a or /b determise: if current is /a, the use /b; otherwise reverse
@@ -277,12 +271,16 @@ impl Service {
                                 "[Service]do_cfg_monitor, failed to upgrade, no target dir found"
                             );
                         } else {
-                            //
                             let sclone2 = sclone.clone();
                             let mut rf = sclone.borrow_mut();
                             let dir = dir.unwrap();
                             rf.do_download(sclone2, dir.0, dir.1, &rsp.upgrade_url);
                         }
+                    } else if rsp.restart && rsp.tuncfg.is_some() {
+                        let cfg = rsp.tuncfg.take().unwrap();
+                        let mut rf = sclone.borrow_mut();
+                        rf.save_cfg(cfg);
+                        rf.fire_instruction(Instruction::Restart);
                     }
                 }
 

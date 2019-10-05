@@ -8,7 +8,7 @@ pub fn query(qname: &str, dns_server: &str) -> Vec<IpAddr> {
     let server = (dns_server, 53);
     let mut result: Vec<IpAddr> = Vec::new();
 
-    let socket = UdpSocket::bind(("0.0.0.0", 43210));
+    let socket = UdpSocket::bind(("0.0.0.0", 0));
     if socket.is_err() {
         error!("[DnsQuery]UdpSocket::bind failed, name:{}", qname);
         return result;
