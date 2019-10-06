@@ -185,18 +185,6 @@ impl TunMgr {
         }
     }
 
-    pub fn on_request_write_out(&mut self, tidx: u16, req_idx: u16, req_tag: u16) {
-        match self.get_tunnel(tidx as usize) {
-            Some(tun) => {
-                let mut tun = tun.borrow_mut();
-                tun.on_request_write_out(req_idx, req_tag);
-            }
-            None => {
-                error!("[TunMgr]on_request_write_out:{}, not found", tidx);
-            }
-        }
-    }
-
     fn alloc_tunnel_for_req(&mut self) -> TunnelItem {
         info!("[TunMgr]alloc_tunnel_for_req");
         let length = self.sorted_tun_indies.len();

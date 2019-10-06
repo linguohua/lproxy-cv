@@ -1,7 +1,7 @@
 use super::Cmd;
 use super::THeader;
 use super::{Reqq, Request, TunStub};
-use crate::config::{DEFAULT_REQ_QUOTA, KEEP_ALIVE_INTERVAL};
+use crate::config::{KEEP_ALIVE_INTERVAL};
 use crate::tunnels::theader::THEADER_SIZE;
 use byte::*;
 use bytes::Bytes;
@@ -264,42 +264,6 @@ impl Tunnel {
             );
             self.req_count -= 1;
             Tunnel::send_request_closed_to_server(tunstub);
-        }
-    }
-
-    pub fn on_request_write_out(&mut self, req_idx1: u16, req_tag: u16) {
-        let requests = &mut self.requests;
-        let req_idx = req_idx1 as usize;
-        if req_idx >= requests.elements.len() {
-            return;
-        }
-
-        let req = &mut requests.elements[req_idx];
-        if req.tag == req_tag {
-            req.write_out += 1;
-
-            if req.write_out == DEFAULT_REQ_QUOTA / 4 {
-                // send quota notify to server
-                let hsize = THEADER_SIZE + 2;
-                let mut buf = vec![0; hsize];
-
-                let th = THeader::new(Cmd::ReqClientQuota, req_idx1, req_tag);
-                let msg_header = &mut buf[0..hsize];
-                th.write_to(msg_header);
-                let bs = &mut buf[THEADER_SIZE..];
-                let offset = &mut 0;
-                bs.write_with::<u16>(offset, req.write_out, LE).unwrap();
-
-                // websocket message
-                let wmsg = Message::from(buf);
-
-                // send to peer, should always succeed
-                if let Err(e) = self.tx.unbounded_send(wmsg) {
-                    error!("[Tunnel]send_request_closed_to_server tx send failed:{}", e);
-                }
-
-                req.write_out = 0;
-            }
         }
     }
 

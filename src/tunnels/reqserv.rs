@@ -1,5 +1,7 @@
 use super::Request;
 use super::{Cmd, THeader, TunMgr, TunStub, THEADER_SIZE};
+use crate::config::DEFAULT_REQ_QUOTA;
+use byte::*;
 use bytes::BytesMut;
 use log::{error, info};
 use nix::sys::socket::getsockname;
@@ -73,12 +75,20 @@ pub fn serve_sock(socket: TcpStream, mgr: Rc<RefCell<TunMgr>>) {
     let tunstub = Rc::new(RefCell::new(tunstub.unwrap()));
     let req_idx = tunstub.borrow().req_idx;
     let req_tag = tunstub.borrow().req_tag;
-    let tun_idx = tunstub.borrow().tun_idx;
 
-    let mgr2 = mgr.clone();
+    // let mgr2 = mgr.clone();
+    let tunstub2 = tunstub.clone();
 
-    let rx = rx.map(move |item|{
-        mgr.borrow_mut().on_request_write_out(tun_idx, req_idx, req_tag);
+    let mut write_out: u16 = 0;
+    let rx = rx.map(move |item| {
+        write_out += 1;
+        if write_out == (DEFAULT_REQ_QUOTA / 8) {
+            let ts = &tunstub2.borrow();
+            send_request_quota(ts, write_out);
+
+            write_out = 0;
+        }
+
         item
     });
 
@@ -89,7 +99,10 @@ pub fn serve_sock(socket: TcpStream, mgr: Rc<RefCell<TunMgr>>) {
     }));
 
     let send_fut = send_fut.and_then(move |_| {
-        info!("[ReqServ]send_fut end, req_idx:{}, req_tag:{}", req_idx, req_tag);
+        info!(
+            "[ReqServ]send_fut end, req_idx:{}, req_tag:{}",
+            req_idx, req_tag
+        );
         // shutdown read direction
         if let Err(e) = shutdown(rawfd, Shutdown::Read) {
             error!("[ReqServ]shutdown rawfd error:{}", e);
@@ -132,7 +145,7 @@ pub fn serve_sock(socket: TcpStream, mgr: Rc<RefCell<TunMgr>>) {
         .then(move |_| {
             let ts = &tunstub2.borrow();
             info!("[ReqServ] tcp both futures completed:{:?}", ts);
-            mgr2.borrow_mut().on_request_closed(ts);
+            mgr.borrow_mut().on_request_closed(ts);
 
             Ok(())
         });
@@ -193,5 +206,27 @@ fn on_request_recv_finished(tun: &TunStub) {
             );
         }
         _ => {}
+    }
+}
+
+fn send_request_quota(tun: &TunStub, qutoa: u16) {
+    // send quota notify to server
+    let hsize = THEADER_SIZE + 2;
+    let mut buf = vec![0; hsize];
+
+    let th = THeader::new(Cmd::ReqClientQuota, tun.req_idx, tun.req_tag);
+    let msg_header = &mut buf[0..hsize];
+    th.write_to(msg_header);
+    let bs = &mut buf[THEADER_SIZE..];
+    let offset = &mut 0;
+    bs.write_with::<u16>(offset, qutoa, LE).unwrap();
+
+    // websocket message
+    let wmsg = Message::from(buf);
+
+    let tx = &tun.tunnel_tx;
+    // send to peer, should always succeed
+    if let Err(e) = tx.unbounded_send(wmsg) {
+        error!("[Tunnel]send_request_closed_to_server tx send failed:{}", e);
     }
 }
