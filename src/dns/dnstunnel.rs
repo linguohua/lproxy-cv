@@ -10,12 +10,13 @@ use std::net::IpAddr::V6;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::os::unix::io::RawFd;
 use std::time::Instant;
-use tungstenite::protocol::Message;
+use crate::lws::{WMessage, RMessage};
+use crate::tunnels::Cmd;
 
 type TxType = UnboundedSender<(bytes::Bytes, std::net::SocketAddr)>;
 
 pub struct DnsTunnel {
-    pub tx: UnboundedSender<Message>,
+    pub tx: UnboundedSender<WMessage>,
     pub index: usize,
 
     rtt_queue: Vec<i64>,
@@ -31,7 +32,7 @@ pub struct DnsTunnel {
 
 impl DnsTunnel {
     pub fn new(
-        tx: UnboundedSender<Message>,
+        tx: UnboundedSender<WMessage>,
         rawfd: RawFd,
         udp_tx: TxType,
         idx: usize,
@@ -52,59 +53,68 @@ impl DnsTunnel {
         }
     }
 
-    pub fn on_tunnel_msg(&mut self, msg: Message, fw: &Forwarder) {
-        if msg.is_ping() {
-            return;
-        }
+    pub fn on_tunnel_msg(&mut self, mut msg: RMessage, fw: &Forwarder) {
+        let bs = msg.buf.as_mut().unwrap();
+        let bs = &mut bs[2..]; // skip the length
 
-        if msg.is_pong() {
-            self.on_pong(msg);
+        let offset = &mut 0;
+        let cmd = bs.read_with::<u8>(offset, LE).unwrap();
+        let bs = &mut bs[1..]; // skip cmd
+        let cmd = Cmd::from(cmd);
 
-            return;
-        }
+        match cmd {
+            Cmd::Ping => {
+                // TODO: send to peer
+            },
+            Cmd::Pong => {
+                self.on_pong(bs);
+            },
+            Cmd::ReqData => {
+            },
+            _ => {
+                let len = bs.len();
+                if len < 6 {
+                    error!("[DnsTunnel]on_tunnel_msg data length({}) != 8", len);
+                    return;
+                }
 
-        let mut bs = msg.into_data();
-        let len = bs.len();
-        if len < 6 {
-            error!("[DnsTunnel]on_tunnel_msg data length({}) != 8", len);
-            return;
-        }
+                match &self.udp_tx {
+                    Some(tx) => {
+                        let offset = &mut 0;
+                        let port = bs.read_with::<u16>(offset, LE).unwrap();
+                        let ip32 = bs.read_with::<u32>(offset, LE).unwrap();
+                        info!("[DnsTunnel]on_tunnel_msg, port:{}, ip:{}", port, ip32);
 
-        match &self.udp_tx {
-            Some(tx) => {
-                let offset = &mut 0;
-                let port = bs.read_with::<u16>(offset, LE).unwrap();
-                let ip32 = bs.read_with::<u32>(offset, LE).unwrap();
-                info!("[DnsTunnel]on_tunnel_msg, port:{}, ip:{}", port, ip32);
+                        {
+                            let content = &mut bs[6..];
 
-                {
-                    let content = &mut bs[6..];
+                            // parse dns reponse and store to ipset
+                            // let buf = &mut bf.buf[0..message.len()];
+                            let mut bf = BytePacketBuffer::new(content);
+                            // buf.copy_from_slice();
+                            let dnspacket = DnsPacket::from_buffer(&mut bf);
+                            match dnspacket {
+                                Ok(p) => {
+                                    fw.save_ipset(&p);
+                                }
 
-                    // parse dns reponse and store to ipset
-                    // let buf = &mut bf.buf[0..message.len()];
-                    let mut bf = BytePacketBuffer::new(content);
-                    // buf.copy_from_slice();
-                    let dnspacket = DnsPacket::from_buffer(&mut bf);
-                    match dnspacket {
-                        Ok(p) => {
-                            fw.save_ipset(&p);
+                                Err(e) => {
+                                    error!("[Forwarder]parse dns packet failed:{}", e);
+                                }
+                            }
                         }
 
-                        Err(e) => {
-                            error!("[Forwarder]parse dns packet failed:{}", e);
+                        {
+                            let content2 = &bs[6..];
+                            let sockaddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::from(ip32)), port);
+
+                            tx.unbounded_send((bytes::Bytes::from(content2), sockaddr))
+                                .unwrap(); // udp send should not failed!
                         }
                     }
-                }
-
-                {
-                    let content2 = &bs[6..];
-                    let sockaddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::from(ip32)), port);
-
-                    tx.unbounded_send((bytes::Bytes::from(content2), sockaddr))
-                        .unwrap(); // udp send should not failed!
+                    None => {}
                 }
             }
-            None => {}
         }
     }
 
@@ -116,18 +126,20 @@ impl DnsTunnel {
     }
 
     pub fn send_ping(&mut self) -> bool {
-        let ping_count = self.ping_count as i64;
+        let ping_count = self.ping_count;
         if ping_count > 10 {
             return true;
         }
 
         let timestamp = self.get_elapsed_milliseconds();
-        let mut bs1 = vec![0 as u8; 8];
+        let mut bs1 = vec![0 as u8; 11]; // 2 bytes length, 1 byte cmd, 8 byte content
         let bs = &mut bs1[..];
         let offset = &mut 0;
+        bs.write_with::<u16>(offset, 11, LE).unwrap();
+        bs.write_with::<u8>(offset, Cmd::Ping as u8, LE).unwrap();
         bs.write_with::<u64>(offset, timestamp, LE).unwrap();
 
-        let msg = Message::Ping(bs1);
+        let msg = WMessage::new(bs1, 0);
         let r = self.tx.unbounded_send(msg);
         match r {
             Err(e) => {
@@ -137,7 +149,7 @@ impl DnsTunnel {
                 self.ping_count += 1;
                 if ping_count > 0 {
                     // TODO: fix accurate RTT?
-                    self.append_rtt(ping_count * (KEEP_ALIVE_INTERVAL as i64));
+                    self.append_rtt((ping_count as i64) * (KEEP_ALIVE_INTERVAL as i64));
                 }
             }
         }
@@ -145,8 +157,7 @@ impl DnsTunnel {
         true
     }
 
-    fn on_pong(&mut self, msg: Message) {
-        let bs = msg.into_data();
+    fn on_pong(&mut self, bs:& [u8]) {
         let len = bs.len();
         if len != 8 {
             error!("[DnsTunnel]pong data length({}) != 8", len);
@@ -200,18 +211,23 @@ impl DnsTunnel {
         }
 
         let size = message.len();
-        let hsize = 6; // port + ipv4
-        let mut buf = vec![0; hsize + size];
+        let hsize = 9; // length + cmd + port + ipv4
+        let total = hsize + size;
+        let mut buf = vec![0; total];
         let header = &mut buf[0..hsize];
         let offset = &mut 0;
+
         info!("[DnsTunnel]on_dns_udp_msg, port:{}, ip:{}", port, ip);
-        header.write_with::<u16>(offset, port, LE).unwrap();
-        header.write_with::<u32>(offset, ip, LE).unwrap();
+
+        header.write_with::<u16>(offset, total as u16, LE).unwrap(); // length
+        header.write_with::<u8>(offset, Cmd::ReqData as u8, LE).unwrap(); // cmd
+        header.write_with::<u16>(offset, port, LE).unwrap(); // port
+        header.write_with::<u32>(offset, ip, LE).unwrap(); // ipv4
 
         let msg_body = &mut buf[hsize..];
         msg_body.copy_from_slice(message.as_ref());
 
-        let wmsg = Message::from(buf);
+        let wmsg = WMessage::new(buf, 0);
         let tx = &self.tx;
         let result = tx.unbounded_send(wmsg);
         match result {

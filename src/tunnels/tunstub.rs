@@ -1,9 +1,9 @@
 use futures::sync::mpsc::UnboundedSender;
 use std::fmt;
-use tungstenite::protocol::Message;
+use crate::lws::WMessage;
 
 pub struct TunStub {
-    pub tunnel_tx: UnboundedSender<Message>,
+    pub tunnel_tx: UnboundedSender<WMessage>,
     pub tun_idx: u16,
     pub req_idx: u16,
     pub req_tag: u16,

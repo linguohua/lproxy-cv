@@ -1,6 +1,7 @@
 mod config;
 mod dns;
 mod htp;
+mod lws;
 mod requests;
 mod service;
 mod tunnels;

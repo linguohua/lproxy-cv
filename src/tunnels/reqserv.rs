@@ -2,7 +2,6 @@ use super::Request;
 use super::{Cmd, THeader, TunMgr, TunStub, THEADER_SIZE};
 use crate::config::DEFAULT_REQ_QUOTA;
 use byte::*;
-use bytes::BytesMut;
 use log::{error, info};
 use nix::sys::socket::getsockname;
 use nix::sys::socket::InetAddr::V4;
@@ -14,13 +13,11 @@ use std::rc::Rc;
 use std::time::Duration;
 use stream_cancel::{StreamExt, Tripwire};
 use tokio;
-use tokio::codec::Decoder;
 use tokio::prelude::*;
 use tokio::runtime::current_thread;
-use tokio_codec::BytesCodec;
 use tokio_io_timeout::TimeoutStream;
 use tokio_tcp::TcpStream;
-use tungstenite::protocol::Message;
+use crate::lws::{TcpFramed, TMessage, WMessage};
 
 pub fn serve_sock(socket: TcpStream, mgr: Rc<RefCell<TunMgr>>) {
     // config tcp stream
@@ -57,7 +54,7 @@ pub fn serve_sock(socket: TcpStream, mgr: Rc<RefCell<TunMgr>>) {
     let wduration = Duration::new(2, 0);
     socket.set_write_timeout(Some(wduration));
 
-    let framed = BytesCodec::new().framed(socket);
+    let framed = TcpFramed::new(socket);
     let (sink, stream) = framed.split();
     let (trigger, tripwire) = Tripwire::new();
     let (tx, rx) = futures::sync::mpsc::unbounded();
@@ -153,19 +150,22 @@ pub fn serve_sock(socket: TcpStream, mgr: Rc<RefCell<TunMgr>>) {
     current_thread::spawn(receive_fut);
 }
 
-fn on_request_msg(message: BytesMut, tun: &TunStub) -> bool {
+fn on_request_msg(mut message: TMessage, tun: &TunStub) -> bool {
     // info!("[ReqMgr]on_request_msg, tun:{}", tun);
-    let size = message.len();
-    let hsize = THEADER_SIZE;
-    let mut buf = vec![0; hsize + size];
+    let vec = message.buf.as_mut().unwrap();
+    let ll = vec.len();
+    let bs =&mut vec[..];
 
-    let th = THeader::new_data_header(tun.req_idx, tun.req_tag);
-    let msg_header = &mut buf[0..hsize];
+    let offset = &mut 0;
+    bs.write_with::<u16>(offset, ll as u16, LE).unwrap();
+    bs.write_with::<u8>(offset, Cmd::ReqData as u8, LE).unwrap();
+
+    let th = THeader::new(tun.req_idx, tun.req_tag);
+    let msg_header = &mut vec[3..];
     th.write_to(msg_header);
-    let msg_body = &mut buf[hsize..];
-    msg_body.copy_from_slice(message.as_ref());
 
-    let wmsg = Message::from(buf);
+    let wmsg = WMessage::new(message.buf.take().unwrap(), 0);
+
     let tx = &tun.tunnel_tx;
     let result = tx.unbounded_send(wmsg);
     match result {
@@ -187,14 +187,19 @@ fn on_request_msg(message: BytesMut, tun: &TunStub) -> bool {
 fn on_request_recv_finished(tun: &TunStub) {
     info!("[ReqServ]on_request_recv_finished:{}", tun);
 
-    let hsize = THEADER_SIZE;
+    let hsize = 3+THEADER_SIZE;
     let mut buf = vec![0; hsize];
 
-    let th = THeader::new(Cmd::ReqClientFinished, tun.req_idx, tun.req_tag);
-    let msg_header = &mut buf[0..hsize];
+    let bs =&mut buf[..];
+    let offset = &mut 0;
+    bs.write_with::<u16>(offset, hsize as u16, LE).unwrap();
+    bs.write_with::<u8>(offset, Cmd::ReqClientFinished as u8, LE).unwrap();
+
+    let th = THeader::new(tun.req_idx, tun.req_tag);
+    let msg_header = &mut buf[3..];
     th.write_to(msg_header);
 
-    let wmsg = Message::from(buf);
+    let wmsg = WMessage::new(buf, 0);
     let tx = &tun.tunnel_tx;
     let result = tx.unbounded_send(wmsg);
 
@@ -211,18 +216,22 @@ fn on_request_recv_finished(tun: &TunStub) {
 
 fn send_request_quota(tun: &TunStub, qutoa: u16) {
     // send quota notify to server
-    let hsize = THEADER_SIZE + 2;
+    let hsize = 3+THEADER_SIZE+2;
     let mut buf = vec![0; hsize];
 
-    let th = THeader::new(Cmd::ReqClientQuota, tun.req_idx, tun.req_tag);
-    let msg_header = &mut buf[0..hsize];
-    th.write_to(msg_header);
-    let bs = &mut buf[THEADER_SIZE..];
+    let bs =&mut buf[..];
     let offset = &mut 0;
-    bs.write_with::<u16>(offset, qutoa, LE).unwrap();
+    bs.write_with::<u16>(offset, hsize as u16, LE).unwrap();
+    bs.write_with::<u8>(offset, Cmd::ReqClientFinished as u8, LE).unwrap();
 
-    // websocket message
-    let wmsg = Message::from(buf);
+    let th = THeader::new(tun.req_idx, tun.req_tag);
+    let msg_header = &mut bs[3..];
+    th.write_to(msg_header);
+
+    *offset = 3+THEADER_SIZE;
+    bs.write_with::<u16>(offset, qutoa as u16, LE).unwrap();
+
+    let wmsg = WMessage::new(buf, 0);
 
     let tx = &tun.tunnel_tx;
     // send to peer, should always succeed

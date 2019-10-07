@@ -1,6 +1,5 @@
 use super::DnsTunnel;
 use super::Forwarder;
-use crate::tunnels::ws_connect_async;
 use futures::sync::mpsc::UnboundedSender;
 use futures::{Future, Stream};
 use log::{debug, error, info};
@@ -9,9 +8,8 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use tokio;
 use tokio::runtime::current_thread;
-use tokio_tungstenite::stream::PeerAddr;
-use tungstenite::protocol::WebSocketConfig;
 use url;
+use crate::tunnels::ws_connect_async;
 
 pub type TxType = UnboundedSender<(bytes::Bytes, std::net::SocketAddr)>;
 
@@ -26,19 +24,11 @@ pub fn connect(fw: &Forwarder, mgr2: Rc<RefCell<Forwarder>>, index: usize, udp_t
     let mgr4 = mgr2.clone();
     let mgr5 = mgr2.clone();
 
-    let mut config = WebSocketConfig::default();
-    config.max_send_queue = Some(64);
-
     // TODO: need to specify address and port
-    let client = ws_connect_async(relay_domain, relay_port, url, Some(config))
+    let client = ws_connect_async(relay_domain, relay_port, url)
         .and_then(move |(ws_stream, rawfd)| {
             debug!("[dnstunbuilder]WebSocket handshake has been successfully completed");
             // let inner = ws_stream.get_inner().get_ref();
-
-            let addr = ws_stream
-                .peer_addr()
-                .expect("[dnstunbuilder]connected streams should have a peer address");
-            debug!("[dnstunbuilder]Peer address: {}", addr);
 
             // Create a channel for our stream, which other sockets will use to
             // send us messages. Then register our address with the stream to send
@@ -67,10 +57,10 @@ pub fn connect(fw: &Forwarder, mgr2: Rc<RefCell<Forwarder>>, index: usize, udp_t
             });
 
             let rx = rx.map_err(|_| {
-                tungstenite::error::Error::Io(std::io::Error::new(
+                std::io::Error::new(
                     std::io::ErrorKind::Other,
                     "[dnstunbuilder] rx-shit",
-                ))
+                )
             });
 
             let send_fut = rx.forward(sink);

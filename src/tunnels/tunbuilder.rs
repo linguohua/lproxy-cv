@@ -1,4 +1,3 @@
-use super::ws_connect_async;
 use crate::config::DEFAULT_REQ_QUOTA;
 use super::TunMgr;
 use super::Tunnel;
@@ -9,9 +8,11 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use tokio;
 use tokio::runtime::current_thread;
-use tokio_tungstenite::stream::PeerAddr;
-use tungstenite::protocol::WebSocketConfig;
 use url;
+use native_tls::TlsConnector;
+use crate::lws;
+use std::os::unix::io::AsRawFd;
+use std::os::unix::io::RawFd;
 
 pub fn connect(tm: &TunMgr, mgr2: Rc<RefCell<TunMgr>>, index: usize) {
     let relay_domain = &tm.relay_domain;
@@ -25,24 +26,16 @@ pub fn connect(tm: &TunMgr, mgr2: Rc<RefCell<TunMgr>>, index: usize) {
     let mgr3 = mgr2.clone();
     let mgr4 = mgr2.clone();
 
-    let mut config = WebSocketConfig::default();
-    config.max_send_queue = Some(64);
-
     info!(
         "[tunbuilder]WebSocket connect to:{}, port:{}",
         relay_domain, relay_port
     );
 
     // TODO: need to specify address and port
-    let client = ws_connect_async(relay_domain, relay_port, url, Some(config))
-        .and_then(move |(ws_stream, rawfd)| {
+    let client = ws_connect_async(relay_domain, relay_port, url)
+        .and_then(move |(framed, rawfd)| {
             debug!("[tunbuilder]WebSocket handshake has been successfully completed");
             // let inner = ws_stream.get_inner().get_ref();
-
-            let addr = ws_stream
-                .peer_addr()
-                .expect("[tunbuilder]connected streams should have a peer address");
-            debug!("[tunbuilder]Peer address: {}", addr);
 
             // Create a channel for our stream, which other sockets will use to
             // send us messages. Then register our address with the stream to send
@@ -59,7 +52,7 @@ pub fn connect(tm: &TunMgr, mgr2: Rc<RefCell<TunMgr>>, index: usize) {
 
             // `sink` is the stream of messages going out.
             // `stream` is the stream of incoming messages.
-            let (sink, stream) = ws_stream.split();
+            let (sink, stream) = framed.split();
 
             let receive_fut = stream.for_each(move |message| {
                 debug!("[tunbuilder]tunnel read a message");
@@ -71,10 +64,10 @@ pub fn connect(tm: &TunMgr, mgr2: Rc<RefCell<TunMgr>>, index: usize) {
             });
 
             let rx = rx.map_err(|_| {
-                tungstenite::error::Error::Io(std::io::Error::new(
+                std::io::Error::new(
                     std::io::ErrorKind::Other,
                     "[tunbuilder] rx-shit",
-                ))
+                )
             });
 
             let send_fut = rx.forward(sink);
@@ -104,4 +97,37 @@ pub fn connect(tm: &TunMgr, mgr2: Rc<RefCell<TunMgr>>, index: usize) {
         });
 
     current_thread::spawn(client);
+}
+
+pub type FrameType = lws::LwsFramed<tokio_tls::TlsStream<tokio_tcp::TcpStream>>;
+pub fn ws_connect_async(relay_domain:&str, relay_port:u16, url2: url::Url) -> impl Future<Item=(FrameType, RawFd), Error=std::io::Error> {
+    let cx = TlsConnector::builder().build().unwrap();
+    let cx = tokio_tls::TlsConnector::from(cx);
+    let host_str = url2.host_str().unwrap().to_string();
+    let path = url2.path().to_string();
+
+    let fut = tokio_dns::TcpStream::connect((relay_domain, relay_port))
+        .and_then(move |socket| {
+            let rawfd = socket.as_raw_fd();
+            let tls_handshake = cx.connect(&host_str, socket);
+            let fut = tls_handshake
+                .map_err(|tslerr| {
+                    println!("TLS connect error:{}", tslerr);
+                    std::io::Error::from(std::io::ErrorKind::NotConnected)
+                })
+                .and_then(move |socket| {
+                    let handshake =
+                        lws::do_client_hanshake(socket, &host_str, &path);
+                    let handshake = handshake.and_then(move |(lsocket, tail)| {
+                        let framed = lws::LwsFramed::new(lsocket, tail);
+
+                        Ok((framed, rawfd))
+                    });
+
+                    handshake
+                });
+
+            fut
+        });
+    fut
 }

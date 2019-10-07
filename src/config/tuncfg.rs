@@ -35,7 +35,9 @@ pub struct TunCfg {
 // }
 
 pub fn server_url() -> String {
-    "https://127.0.0.1:8000/auth".to_string()
+    "https://www.llwant.com/authrbNCD66xjS3YC41cLTbRRxDz7pKCv4ylHpJHTkXzkO5mCoEvqgSTEPqYfLuJO425"
+        .to_string()
+    //"https://127.0.0.1:8000/auth".to_string()
 }
 
 pub struct AuthReq {

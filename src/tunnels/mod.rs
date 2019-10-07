@@ -6,8 +6,6 @@ mod theader;
 pub use theader::*;
 mod tunbuilder;
 pub use tunbuilder::*;
-mod wsconn;
-pub use wsconn::*;
 mod reqserv;
 pub use reqserv::*;
 mod reqq;
