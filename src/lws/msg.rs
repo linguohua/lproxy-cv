@@ -42,7 +42,7 @@ impl BufMut for RMessage {
             remain = (self.cached_legnth as usize - vec.len()) as usize;
         }
 
-        println!("remaining_mut:{}", remain);
+        //println!("remaining_mut:{}", remain);
 
         return remain;
     }
@@ -52,7 +52,7 @@ impl BufMut for RMessage {
         let nlen = cnt + vec.len();
 
         vec.set_len(nlen);
-        println!("advance_mut, cnt:{}, vlen:{}", cnt, vec.len());
+        //println!("advance_mut, cnt:{}, vlen:{}", cnt, vec.len());
 
         if self.cached_legnth == 0 && nlen >= HEAD_SIZE {
             let bs = &vec[..HEAD_SIZE];
@@ -62,6 +62,7 @@ impl BufMut for RMessage {
             if self.cached_legnth == 0 || self.cached_legnth >= (DEFAULT_CAP as u16) {
                 panic!("cached_legnth not valid:{}", self.cached_legnth);
             }
+            println!("cached_legnth: {}", self.cached_legnth);
         }
     }
 
@@ -146,7 +147,7 @@ impl BufMut for TMessage {
         let nlen = cnt + vec.len();
 
         vec.set_len(nlen);
-        println!("advance_mut, cnt:{}, vlen:{}", cnt, vec.len());
+        //println!("advance_mut, cnt:{}, vlen:{}", cnt, vec.len());
     }
 
     unsafe fn bytes_mut(&mut self) -> &mut [u8] {

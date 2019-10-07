@@ -1,6 +1,7 @@
 use super::Request;
 use super::{Cmd, THeader, TunMgr, TunStub, THEADER_SIZE};
 use crate::config::DEFAULT_REQ_QUOTA;
+use crate::lws::{TMessage, TcpFramed, WMessage};
 use byte::*;
 use log::{error, info};
 use nix::sys::socket::getsockname;
@@ -17,7 +18,6 @@ use tokio::prelude::*;
 use tokio::runtime::current_thread;
 use tokio_io_timeout::TimeoutStream;
 use tokio_tcp::TcpStream;
-use crate::lws::{TcpFramed, TMessage, WMessage};
 
 pub fn serve_sock(socket: TcpStream, mgr: Rc<RefCell<TunMgr>>) {
     // config tcp stream
@@ -154,7 +154,7 @@ fn on_request_msg(mut message: TMessage, tun: &TunStub) -> bool {
     // info!("[ReqMgr]on_request_msg, tun:{}", tun);
     let vec = message.buf.as_mut().unwrap();
     let ll = vec.len();
-    let bs =&mut vec[..];
+    let bs = &mut vec[..];
 
     let offset = &mut 0;
     bs.write_with::<u16>(offset, ll as u16, LE).unwrap();
@@ -187,13 +187,14 @@ fn on_request_msg(mut message: TMessage, tun: &TunStub) -> bool {
 fn on_request_recv_finished(tun: &TunStub) {
     info!("[ReqServ]on_request_recv_finished:{}", tun);
 
-    let hsize = 3+THEADER_SIZE;
+    let hsize = 3 + THEADER_SIZE;
     let mut buf = vec![0; hsize];
 
-    let bs =&mut buf[..];
+    let bs = &mut buf[..];
     let offset = &mut 0;
     bs.write_with::<u16>(offset, hsize as u16, LE).unwrap();
-    bs.write_with::<u8>(offset, Cmd::ReqClientFinished as u8, LE).unwrap();
+    bs.write_with::<u8>(offset, Cmd::ReqClientFinished as u8, LE)
+        .unwrap();
 
     let th = THeader::new(tun.req_idx, tun.req_tag);
     let msg_header = &mut buf[3..];
@@ -216,19 +217,20 @@ fn on_request_recv_finished(tun: &TunStub) {
 
 fn send_request_quota(tun: &TunStub, qutoa: u16) {
     // send quota notify to server
-    let hsize = 3+THEADER_SIZE+2;
+    let hsize = 3 + THEADER_SIZE + 2;
     let mut buf = vec![0; hsize];
 
-    let bs =&mut buf[..];
+    let bs = &mut buf[..];
     let offset = &mut 0;
     bs.write_with::<u16>(offset, hsize as u16, LE).unwrap();
-    bs.write_with::<u8>(offset, Cmd::ReqClientFinished as u8, LE).unwrap();
+    bs.write_with::<u8>(offset, Cmd::ReqClientQuota as u8, LE)
+        .unwrap();
 
     let th = THeader::new(tun.req_idx, tun.req_tag);
     let msg_header = &mut bs[3..];
     th.write_to(msg_header);
 
-    *offset = 3+THEADER_SIZE;
+    *offset = 3 + THEADER_SIZE;
     bs.write_with::<u16>(offset, qutoa as u16, LE).unwrap();
 
     let wmsg = WMessage::new(buf, 0);

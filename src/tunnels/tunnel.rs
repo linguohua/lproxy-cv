@@ -55,8 +55,9 @@ impl Tunnel {
     }
 
     pub fn on_tunnel_msg(&mut self, mut msg: RMessage) {
-        // info!("[Tunnel]on_tunnel_msg");
         let bs = msg.buf.as_ref().unwrap();
+        // info!("[Tunnel]on_tunnel_msg, len:{}", bs.len());
+
         let bs = &bs[2..]; // skip the length
         self.busy += bs.len();
 
@@ -87,6 +88,10 @@ impl Tunnel {
                         return;
                     }
                     Some(tx) => {
+                        // info!(
+                        //     "[Tunnel] {} return request msg: {}:{}",
+                        //     self.index, req_idx, req_tag
+                        // );
                         let wmsg =
                             WMessage::new(msg.buf.take().unwrap(), (3 + THEADER_SIZE) as u16);
                         let result = tx.unbounded_send(wmsg);
@@ -132,7 +137,7 @@ impl Tunnel {
     }
 
     fn reply_ping(&mut self, mut msg: RMessage) {
-        info!("[Tunnel] reply_ping");
+        //info!("[Tunnel] reply_ping");
         let mut vec = msg.buf.take().unwrap();
         let bs = &mut vec[2..];
         let offset = &mut 0;
@@ -155,7 +160,7 @@ impl Tunnel {
     }
 
     fn on_pong(&mut self, bs: &[u8]) {
-        info!("[Tunnel] on_pong");
+        //info!("[Tunnel] on_pong");
         let len = bs.len();
         if len != 8 {
             error!("[Tunnel]{} pong data length({}) != 8", self.index, len);
@@ -397,7 +402,7 @@ impl Tunnel {
         let bs = &mut buf[..];
         let offset = &mut 0;
         bs.write_with::<u16>(offset, total as u16, LE).unwrap(); // length
-        bs.write_with::<u8>(offset, Cmd::ReqCreated as u8, LE)
+        bs.write_with::<u8>(offset, Cmd::ReqClientClosed as u8, LE)
             .unwrap(); // cmd
 
         let th = THeader::new(ts.req_idx, ts.req_tag);
