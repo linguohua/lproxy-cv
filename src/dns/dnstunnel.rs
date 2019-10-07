@@ -1,6 +1,8 @@
 use super::dnspacket::{BytePacketBuffer, DnsPacket};
 use super::Forwarder;
 use crate::config::KEEP_ALIVE_INTERVAL;
+use crate::lws::{RMessage, WMessage};
+use crate::tunnels::Cmd;
 use byte::*;
 use futures::sync::mpsc::UnboundedSender;
 use log::{error, info};
@@ -10,8 +12,6 @@ use std::net::IpAddr::V6;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::os::unix::io::RawFd;
 use std::time::Instant;
-use crate::lws::{WMessage, RMessage};
-use crate::tunnels::Cmd;
 
 type TxType = UnboundedSender<(bytes::Bytes, std::net::SocketAddr)>;
 
@@ -55,6 +55,7 @@ impl DnsTunnel {
 
     pub fn on_tunnel_msg(&mut self, mut msg: RMessage, fw: &Forwarder) {
         let bs = msg.buf.as_mut().unwrap();
+        // info!("[DnsTunnel]on_tunnel_msg, len:{}", bs.len());
         let bs = &mut bs[2..]; // skip the length
 
         let offset = &mut 0;
@@ -64,14 +65,12 @@ impl DnsTunnel {
 
         match cmd {
             Cmd::Ping => {
-                // TODO: send to peer
-            },
+                self.reply_ping(msg);
+            }
             Cmd::Pong => {
                 self.on_pong(bs);
-            },
+            }
             Cmd::ReqData => {
-            },
-            _ => {
                 let len = bs.len();
                 if len < 6 {
                     error!("[DnsTunnel]on_tunnel_msg data length({}) != 8", len);
@@ -83,7 +82,7 @@ impl DnsTunnel {
                         let offset = &mut 0;
                         let port = bs.read_with::<u16>(offset, LE).unwrap();
                         let ip32 = bs.read_with::<u32>(offset, LE).unwrap();
-                        info!("[DnsTunnel]on_tunnel_msg, port:{}, ip:{}", port, ip32);
+                        // info!("[DnsTunnel]on_tunnel_msg, port:{}, ip:{}", port, ip32);
 
                         {
                             let content = &mut bs[6..];
@@ -115,6 +114,7 @@ impl DnsTunnel {
                     None => {}
                 }
             }
+            _ => {}
         }
     }
 
@@ -157,10 +157,34 @@ impl DnsTunnel {
         true
     }
 
-    fn on_pong(&mut self, bs:& [u8]) {
+    fn reply_ping(&mut self, mut msg: RMessage) {
+        // info!("[DnsTunnel] reply_ping");
+        let mut vec = msg.buf.take().unwrap();
+        let bs = &mut vec[2..];
+        let offset = &mut 0;
+        bs.write_with::<u8>(offset, Cmd::Pong as u8, LE).unwrap();
+
+        let wmsg = WMessage::new(vec, 0);
+        let tx = &self.tx;
+        let result = tx.unbounded_send(wmsg);
+        match result {
+            Err(e) => {
+                error!(
+                    "[DnsTunnel]{} reply_ping tun send error:{}, tun_tx maybe closed",
+                    self.index, e
+                );
+            }
+            _ => {
+                //info!("[DnsTunnel]on_dns_reply unbounded_send request msg",)
+            }
+        }
+    }
+
+    fn on_pong(&mut self, bs: &[u8]) {
+        // info!("[DnsTunnel] on_pong");
         let len = bs.len();
         if len != 8 {
-            error!("[DnsTunnel]pong data length({}) != 8", len);
+            error!("[DnsTunnel]{} pong data length({}) != 8", self.index, len);
             return;
         }
 
@@ -171,7 +195,11 @@ impl DnsTunnel {
         let timestamp = bs.read_with::<u64>(offset, LE).unwrap();
 
         let in_ms = self.get_elapsed_milliseconds();
-        assert!(in_ms >= timestamp, "[DnsTunnel]pong timestamp > now!");
+        assert!(
+            in_ms >= timestamp,
+            "[DnsTunnel] {} pong timestamp > now!",
+            self.index
+        );
 
         let rtt = in_ms - timestamp;
         let rtt = rtt as i64;
@@ -220,7 +248,9 @@ impl DnsTunnel {
         info!("[DnsTunnel]on_dns_udp_msg, port:{}, ip:{}", port, ip);
 
         header.write_with::<u16>(offset, total as u16, LE).unwrap(); // length
-        header.write_with::<u8>(offset, Cmd::ReqData as u8, LE).unwrap(); // cmd
+        header
+            .write_with::<u8>(offset, Cmd::ReqData as u8, LE)
+            .unwrap(); // cmd
         header.write_with::<u16>(offset, port, LE).unwrap(); // port
         header.write_with::<u32>(offset, ip, LE).unwrap(); // ipv4
 
