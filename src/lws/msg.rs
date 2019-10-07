@@ -36,7 +36,7 @@ impl BufMut for RMessage {
         let vec = self.buf.as_ref().unwrap();
         let remain;
         // if no header read
-        if vec.len() <= HEAD_SIZE {
+        if vec.len() < HEAD_SIZE {
             remain = (HEAD_SIZE - vec.len()) as usize;
         } else {
             remain = (self.cached_legnth as usize - vec.len()) as usize;
@@ -123,9 +123,7 @@ impl TMessage {
             buf.push(0);
         }
 
-        TMessage {
-            buf: Some(buf),
-        }
+        TMessage { buf: Some(buf) }
     }
 
     unsafe fn as_raw(&mut self) -> &mut [u8] {
@@ -149,7 +147,6 @@ impl BufMut for TMessage {
 
         vec.set_len(nlen);
         println!("advance_mut, cnt:{}, vlen:{}", cnt, vec.len());
-
     }
 
     unsafe fn bytes_mut(&mut self) -> &mut [u8] {

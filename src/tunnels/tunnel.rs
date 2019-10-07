@@ -1,7 +1,7 @@
 use super::Cmd;
 use super::THeader;
 use super::{Reqq, Request, TunStub};
-use crate::config::{KEEP_ALIVE_INTERVAL};
+use crate::config::KEEP_ALIVE_INTERVAL;
 use crate::tunnels::theader::THEADER_SIZE;
 use byte::*;
 use futures::sync::mpsc::UnboundedSender;
@@ -10,7 +10,7 @@ use nix::sys::socket::{shutdown, Shutdown};
 use std::os::unix::io::RawFd;
 use std::time::Instant;
 
-use crate::lws::{WMessage, RMessage};
+use crate::lws::{RMessage, WMessage};
 
 pub struct Tunnel {
     pub tx: UnboundedSender<WMessage>,
@@ -67,11 +67,11 @@ impl Tunnel {
 
         match cmd {
             Cmd::Ping => {
-                // TODO: send to peer
-            },
+                self.reply_ping(msg);
+            }
             Cmd::Pong => {
                 self.on_pong(bs);
-            },
+            }
             Cmd::ReqData => {
                 let th = THeader::read_from(&bs[..]);
                 // data
@@ -80,15 +80,22 @@ impl Tunnel {
                 let tx = self.get_request_tx(req_idx, req_tag);
                 match tx {
                     None => {
-                        info!("[Tunnel]no request found for: {}:{}", req_idx, req_tag);
+                        info!(
+                            "[Tunnel] {} no request found for: {}:{}",
+                            self.index, req_idx, req_tag
+                        );
                         return;
                     }
                     Some(tx) => {
-                        let wmsg = WMessage::new(msg.buf.take().unwrap(), (3 + THEADER_SIZE) as u16);
+                        let wmsg =
+                            WMessage::new(msg.buf.take().unwrap(), (3 + THEADER_SIZE) as u16);
                         let result = tx.unbounded_send(wmsg);
                         match result {
                             Err(e) => {
-                                info!("[Tunnel]tunnel msg send to request failed:{}", e);
+                                info!(
+                                    "[Tunnel] {} tunnel msg send to request failed:{}",
+                                    self.index, e
+                                );
                                 return;
                             }
                             _ => {}
@@ -116,15 +123,42 @@ impl Tunnel {
                 }
             }
             _ => {
-                error!("[Tunnel]unsupport cmd:{:?}, discard msg", cmd);
+                error!(
+                    "[Tunnel]{} unsupport cmd:{:?}, discard msg",
+                    self.index, cmd
+                );
             }
         }
     }
 
-    fn on_pong(&mut self, bs:& [u8]) {
+    fn reply_ping(&mut self, mut msg: RMessage) {
+        info!("[Tunnel] reply_ping");
+        let mut vec = msg.buf.take().unwrap();
+        let bs = &mut vec[2..];
+        let offset = &mut 0;
+        bs.write_with::<u8>(offset, Cmd::Pong as u8, LE).unwrap();
+
+        let wmsg = WMessage::new(vec, 0);
+        let tx = &self.tx;
+        let result = tx.unbounded_send(wmsg);
+        match result {
+            Err(e) => {
+                error!(
+                    "[Tunnel]{} reply_ping tun send error:{}, tun_tx maybe closed",
+                    self.index, e
+                );
+            }
+            _ => {
+                //info!("[Tunnel]on_dns_reply unbounded_send request msg",)
+            }
+        }
+    }
+
+    fn on_pong(&mut self, bs: &[u8]) {
+        info!("[Tunnel] on_pong");
         let len = bs.len();
         if len != 8 {
-            error!("[Tunnel]pong data length({}) != 8", len);
+            error!("[Tunnel]{} pong data length({}) != 8", self.index, len);
             return;
         }
 
@@ -135,7 +169,11 @@ impl Tunnel {
         let timestamp = bs.read_with::<u64>(offset, LE).unwrap();
 
         let in_ms = self.get_elapsed_milliseconds();
-        assert!(in_ms >= timestamp, "[Tunnel]pong timestamp > now!");
+        assert!(
+            in_ms >= timestamp,
+            "[Tunnel] {} pong timestamp > now!",
+            self.index
+        );
 
         let rtt = in_ms - timestamp;
         let rtt = rtt as i64;
@@ -204,15 +242,15 @@ impl Tunnel {
         let req = &mut requests.elements[req_idx];
         if req.tag == req_tag && req.request_tx.is_some() {
             info!(
-                "[Tunnel]free_request_tx, req_idx:{}, req_tag:{}",
-                req_idx, req_tag
+                "[Tunnel]{} free_request_tx, req_idx:{}, req_tag:{}",
+                self.index, req_idx, req_tag
             );
             req.request_tx = None;
         }
     }
 
     pub fn on_request_created(&mut self, req: Request) -> Option<TunStub> {
-        info!("[Tunnel]on_request_created");
+        info!("[Tunnel]{} on_request_created", self.index);
         let ip = req.ipv4_be;
         let port = req.port_be;
 
@@ -249,7 +287,7 @@ impl Tunnel {
     }
 
     pub fn on_request_closed(&mut self, tunstub: &TunStub) {
-        info!("[Tunnel]on_request_closed, tun index:{}", self.index);
+        info!("[Tunnel]{} on_request_closed", self.index);
         let reqs = &mut self.requests;
         let r = reqs.free(tunstub.req_idx, tunstub.req_tag);
 
@@ -269,7 +307,8 @@ impl Tunnel {
         reqs.clear_all();
 
         info!(
-            "[Tunnel]tunnel live duration {} minutes",
+            "[Tunnel]{} tunnel live duration {} minutes",
+            self.index,
             self.time.elapsed().as_secs() / 60
         );
     }
@@ -292,7 +331,7 @@ impl Tunnel {
         let r = self.tx.unbounded_send(msg);
         match r {
             Err(e) => {
-                error!("[Tunnel]tunnel send_ping error:{}", e);
+                error!("[Tunnel]{} tunnel send_ping error:{}", self.index, e);
             }
             _ => {
                 self.ping_count += 1;
@@ -308,8 +347,8 @@ impl Tunnel {
 
     fn send_request_created_to_server(ts: &TunStub, ip: u32, port: u16) {
         info!(
-            "[Tunnel]send_request_created_to_server, target:{}:{}",
-            ip, port
+            "[Tunnel]{} send_request_created_to_server, target:{}:{}",
+            ts.tun_idx, ip, port
         );
 
         // send request to server
@@ -321,7 +360,8 @@ impl Tunnel {
         let bs = &mut buf[..];
         let offset = &mut 0;
         bs.write_with::<u16>(offset, total as u16, LE).unwrap(); // length
-        bs.write_with::<u8>(offset, Cmd::ReqCreated as u8, LE).unwrap(); // cmd
+        bs.write_with::<u8>(offset, Cmd::ReqCreated as u8, LE)
+            .unwrap(); // cmd
 
         let th = THeader::new(ts.req_idx, ts.req_tag); // header
         let msg_header = &mut buf[3..];
@@ -339,8 +379,8 @@ impl Tunnel {
         // send to peer, should always succeed
         if let Err(e) = ts.tunnel_tx.unbounded_send(wmsg) {
             error!(
-                "[Tunnel]send_request_created_to_server tx send failed:{}",
-                e
+                "[Tunnel]{} send_request_created_to_server tx send failed:{}",
+                ts.tun_idx, e
             );
         }
     }
@@ -357,7 +397,8 @@ impl Tunnel {
         let bs = &mut buf[..];
         let offset = &mut 0;
         bs.write_with::<u16>(offset, total as u16, LE).unwrap(); // length
-        bs.write_with::<u8>(offset, Cmd::ReqCreated as u8, LE).unwrap(); // cmd
+        bs.write_with::<u8>(offset, Cmd::ReqCreated as u8, LE)
+            .unwrap(); // cmd
 
         let th = THeader::new(ts.req_idx, ts.req_tag);
         let msg_header = &mut buf[3..];
@@ -368,7 +409,10 @@ impl Tunnel {
 
         // send to peer, should always succeed
         if let Err(e) = ts.tunnel_tx.unbounded_send(wmsg) {
-            error!("[Tunnel]send_request_closed_to_server tx send failed:{}", e);
+            error!(
+                "[Tunnel]{} send_request_closed_to_server tx send failed:{}",
+                ts.tun_idx, e
+            );
         }
     }
 

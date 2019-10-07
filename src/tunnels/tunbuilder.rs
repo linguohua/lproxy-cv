@@ -105,6 +105,13 @@ pub fn ws_connect_async(relay_domain:&str, relay_port:u16, url2: url::Url) -> im
     let cx = tokio_tls::TlsConnector::from(cx);
     let host_str = url2.host_str().unwrap().to_string();
     let path = url2.path().to_string();
+    let query = match url2.query() {
+        Some(q) => format!("?{}", q),
+        None => "".to_string(),
+    };
+
+    let path = format!("{}{}", path, query);
+    info!("ws_connect_async, host:{}, path:{}", host_str, path);
 
     let fut = tokio_dns::TcpStream::connect((relay_domain, relay_port))
         .and_then(move |socket| {
@@ -119,6 +126,7 @@ pub fn ws_connect_async(relay_domain:&str, relay_port:u16, url2: url::Url) -> im
                     let handshake =
                         lws::do_client_hanshake(socket, &host_str, &path);
                     let handshake = handshake.and_then(move |(lsocket, tail)| {
+                        println!("lws handshake completed");
                         let framed = lws::LwsFramed::new(lsocket, tail);
 
                         Ok((framed, rawfd))
