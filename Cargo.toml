@@ -8,6 +8,9 @@ edition = "2018"
 [profile.release]
 lto = true
 
+[patch.crates-io]
+native-tls = { git = "https://github.com/linguohua/rust-native-tls" }
+
 [dependencies]
 futures = "0.1.28"
 failure = "0.1.5"
