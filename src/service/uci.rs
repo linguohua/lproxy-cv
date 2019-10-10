@@ -5,7 +5,7 @@ pub fn set_uci_dnsmasq_to_default() {
     let arg = format!(
         "uci -q delete dhcp.@dnsmasq[0].server;\
          uci -q add_list dhcp.@dnsmasq[0].server=\"{}\";\
-         uci set dhcp.@dnsmasq[0].noresolv='1';\
+         uci -q set dhcp.@dnsmasq[0].noresolv='1';\
          uci commit dhcp;\
          /etc/init.d/dnsmasq restart",
         DEFAULT_DNS_SERVER
