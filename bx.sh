@@ -21,7 +21,6 @@ export HOST_CC=gcc
 export X86_64_UNKNOWN_LINUX_MUSL_OPENSSL_DIR=$TARGET_DIR/usr/
 export PKG_CONFIG_ALLOW_CROSS=1
 
-#cargo build --target x86_64-unknown-linux-musl --release
+#RUSTFLAGS="-C link-arg=-Wl,-dynamic-linker,/lib/ld-musl-x86_64.so.1" cargo build --target x86_64-unknown-linux-musl --release
 
-RUSTFLAGS='-C link-arg=-s' cargo build --target x86_64-unknown-linux-musl --release
-
+RUSTFLAGS="-C link-arg=-s -C link-arg=-Wl,-dynamic-linker,/lib/ld-musl-x86_64.so.1" cargo build --target x86_64-unknown-linux-musl --release
