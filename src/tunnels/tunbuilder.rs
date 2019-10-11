@@ -9,7 +9,9 @@ use std::cell::RefCell;
 use std::os::unix::io::AsRawFd;
 use std::os::unix::io::RawFd;
 use std::rc::Rc;
+use std::time::Duration;
 use tokio;
+use tokio::prelude::FutureExt;
 use tokio::runtime::current_thread;
 use url;
 
@@ -19,10 +21,7 @@ pub fn connect(tm: &TunMgr, mgr2: Rc<RefCell<TunMgr>>, index: usize) {
     let ws_url = &tm.url;
     let tunnel_req_cap = tm.tunnel_req_cap;
     let request_quota = tm.request_quota;
-    let ws_url = format!(
-        "{}?cap={}&quota={}",
-        ws_url, tunnel_req_cap, request_quota
-    );
+    let ws_url = format!("{}?cap={}&quota={}", ws_url, tunnel_req_cap, request_quota);
     let url = url::Url::parse(&ws_url).unwrap();
 
     let mgr1 = mgr2.clone();
@@ -44,7 +43,13 @@ pub fn connect(tm: &TunMgr, mgr2: Rc<RefCell<TunMgr>>, index: usize) {
             // send us messages. Then register our address with the stream to send
             // data to us.
             let (tx, rx) = futures::sync::mpsc::unbounded();
-            let t = Rc::new(RefCell::new(Tunnel::new(tx, rawfd, index, tunnel_req_cap, request_quota)));
+            let t = Rc::new(RefCell::new(Tunnel::new(
+                tx,
+                rawfd,
+                index,
+                tunnel_req_cap,
+                request_quota,
+            )));
             let mut rf = mgr1.borrow_mut();
             if let Err(_) = rf.on_tunnel_created(t.clone()) {
                 // TODO: should return directly
@@ -145,5 +150,18 @@ pub fn ws_connect_async(
 
         fut
     });
+
+    let fut = fut
+        .timeout(Duration::from_millis(10 * 1000)) // 10 seconds
+        .map_err(|err| {
+            if err.is_elapsed() {
+                std::io::Error::from(std::io::ErrorKind::TimedOut)
+            } else if let Some(inner) = err.into_inner() {
+                inner
+            } else {
+                std::io::Error::new(std::io::ErrorKind::Other, "timeout error")
+            }
+        });
+
     fut
 }
