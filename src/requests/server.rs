@@ -17,16 +17,18 @@ type LongLive = Rc<RefCell<Server>>;
 
 pub struct Server {
     listen_addr: String,
+    listen_port: u16,
     // TODO: log request count
     listener_trigger: Option<Trigger>,
 }
 
 impl Server {
-    pub fn new(addr: &str) -> LongLive {
+    pub fn new(addr: &str, port: u16) -> LongLive {
         info!("[Server]new server, addr:{}", addr);
         Rc::new(RefCell::new(Server {
             listen_addr: addr.to_string(),
             listener_trigger: None,
+            listen_port: port,
         }))
     }
 
@@ -37,7 +39,8 @@ impl Server {
         // Bind the server's socket.
         let addr = &self.listen_addr;
         let addr_inet = addr.parse().map_err(|e| Error::from(e))?;
-        let listener = TcpListener::bind(&addr_inet).map_err(|e| Error::from(e))?;
+        let socket_addr = std::net::SocketAddr::new(addr_inet, self.listen_port);
+        let listener = TcpListener::bind(&socket_addr).map_err(|e| Error::from(e))?;
 
         let rawfd = listener.as_raw_fd();
         info!("[Server]listener rawfd:{}", rawfd);

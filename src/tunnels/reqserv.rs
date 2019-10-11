@@ -5,7 +5,6 @@ use crate::lws::{TMessage, TcpFramed, WMessage};
 use byte::*;
 use log::{error, info};
 use nix::sys::socket::getsockname;
-use nix::sys::socket::InetAddr::V4;
 use nix::sys::socket::SockAddr::Inet;
 use nix::sys::socket::{shutdown, Shutdown};
 use std::cell::RefCell;
@@ -31,23 +30,19 @@ pub fn serve_sock(socket: TcpStream, mgr: Rc<RefCell<TunMgr>>) {
     //let result = getsockopt(rawfd, OriginalDst).unwrap();
     let result = getsockname(rawfd).unwrap();
 
-    let mut ip_be = 0; // result.sin_addr.s_addr;
-    let mut port_be = 0; // result.sin_port.to_be();
+    let ip;
+    let port: u16;
     match result {
-        Inet(iaddr) => match iaddr {
-            V4(v) => {
-                ip_be = v.sin_addr.s_addr.to_be();
-                port_be = v.sin_port.to_be();
-            }
-            _ => {
-                // TODO: ipv6
-            }
-        },
-        _ => {}
+        Inet(iaddr) => {
+            port = iaddr.port();
+            ip = iaddr.ip();
+        }
+        _ => {
+            return;
+        }
     }
 
-    let ipaddr = std::net::Ipv4Addr::from(ip_be); // ip_le.to_be()
-    info!("[ReqServ]serve_sock, ip:{}, port:{}", ipaddr, port_be);
+    info!("[ReqServ]serve_sock, ip:{}, port:{}", ip, port);
 
     // set 2 seconds write-timeout
     let mut socket = TimeoutStream::new(socket);
@@ -59,8 +54,8 @@ pub fn serve_sock(socket: TcpStream, mgr: Rc<RefCell<TunMgr>>) {
     let (trigger, tripwire) = Tripwire::new();
     let (tx, rx) = futures::sync::mpsc::unbounded();
 
-    let req = Request::with(tx, trigger, ip_be, port_be);
-    let tunstub = mgr.borrow_mut().on_request_created(req);
+    let req = Request::with(tx, trigger);
+    let tunstub = mgr.borrow_mut().on_request_created(req, ip.to_std(), port);
 
     if tunstub.is_none() {
         // invalid tunnel

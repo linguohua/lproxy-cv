@@ -7,6 +7,7 @@ use super::LocalResolver;
 use super::UdpServer;
 use crate::config::{
     TunCfg, IPSET_TABLE_NULL, KEEP_ALIVE_INTERVAL, LOCAL_SERVER, LOCAL_SERVER_PORT,
+    IPSET_TABLE6_NULL,
 };
 use failure::Error;
 use log::{debug, error, info};
@@ -325,9 +326,26 @@ impl Forwarder {
                     addr,
                     ttl: _,
                 } => {
+                    info!("[Forwarder] try to save ipv4 into ipset:{}", addr);
                     let ipv4 = addr.octets();
                     let mut vec = vec![0 as u8; 256];
                     let len = construct_ipset_packet(IPSET_TABLE_NULL, &ipv4[..], &mut vec);
+                    match self.nsock.send_to(&vec[..len as usize], 0) {
+                        Err(e) => {
+                            error!("[Forwarder] save ipset failed:{}", e);
+                        }
+                        _ => {}
+                    }
+                }
+                DnsRecord::AAAA {
+                    domain: _,
+                    addr,
+                    ttl: _,
+                } => {
+                    let ipv6 = addr.octets();
+                    info!("[Forwarder] try to save ipv6 into ipset:{}", addr);
+                    let mut vec = vec![0 as u8; 256];
+                    let len = construct_ipset_packet(IPSET_TABLE6_NULL, &ipv6[..], &mut vec);
                     match self.nsock.send_to(&vec[..len as usize], 0) {
                         Err(e) => {
                             error!("[Forwarder] save ipset failed:{}", e);

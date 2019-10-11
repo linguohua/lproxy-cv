@@ -13,6 +13,7 @@ type LongLive = Rc<RefCell<ReqMgr>>;
 
 pub struct ReqMgr {
     server: Rc<RefCell<Server>>,
+    server6: Rc<RefCell<Server>>,
     tmstub: Vec<TunMgrStub>,
     // tm: Rc<RefCell<TunMgr>>,
     tmindex: usize,
@@ -21,9 +22,9 @@ pub struct ReqMgr {
 impl ReqMgr {
     pub fn new(_cfg: &TunCfg, tmstub: Vec<TunMgrStub>) -> LongLive {
         info!("[ReqMgr]new ReqMgr");
-        let local_addr = format!("{}:{}", LOCAL_SERVER, LOCAL_SERVER_PORT);
         Rc::new(RefCell::new(ReqMgr {
-            server: Server::new(&local_addr),
+            server: Server::new(LOCAL_SERVER, LOCAL_SERVER_PORT),
+            server6: Server::new("::1", LOCAL_SERVER_PORT),
             tmstub: tmstub,
             tmindex: 0,
         }))
@@ -31,7 +32,8 @@ impl ReqMgr {
 
     pub fn init(&self, s: LongLive) -> Result<(), Error> {
         info!("[ReqMgr]init ReqMgr");
-        self.server.borrow_mut().start(s)
+        self.server.borrow_mut().start(s.clone())?;
+        self.server6.borrow_mut().start(s)
     }
 
     pub fn stop(&mut self) {
@@ -39,6 +41,9 @@ impl ReqMgr {
 
         let mut s = self.server.borrow_mut();
         s.stop();
+
+        let mut s2 = self.server6.borrow_mut();
+        s2.stop();
     }
 
     pub fn on_accept_tcpstream(&mut self, tcpstream: tokio_tcp::TcpStream) {

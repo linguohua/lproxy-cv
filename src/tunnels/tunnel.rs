@@ -1,3 +1,5 @@
+use std::net::IpAddr::{V4, V6};
+use std::net::IpAddr;
 use super::Cmd;
 use super::THeader;
 use super::{Reqq, Request, TunStub};
@@ -254,10 +256,8 @@ impl Tunnel {
         }
     }
 
-    pub fn on_request_created(&mut self, req: Request) -> Option<TunStub> {
+    pub fn on_request_created(&mut self, req: Request, ip: IpAddr, port: u16) -> Option<TunStub> {
         info!("[Tunnel]{} on_request_created", self.index);
-        let ip = req.ipv4_be;
-        let port = req.port_be;
 
         let ts = self.on_request_created_internal(req);
         match ts {
@@ -350,14 +350,24 @@ impl Tunnel {
         true
     }
 
-    fn send_request_created_to_server(ts: &TunStub, ip: u32, port: u16) {
+    fn send_request_created_to_server(ts: &TunStub, ip: IpAddr, port: u16) {
         info!(
             "[Tunnel]{} send_request_created_to_server, target:{}:{}",
             ts.tun_idx, ip, port
         );
 
+        let ipaddr_length;
+        match ip {
+            V4(_) => {
+                ipaddr_length = 4;
+            },
+            V6(_) => {
+                ipaddr_length = 16;
+            }
+        }
+
         // send request to server
-        let content_size = 1 + 4 + 2; // ipv4 + port;
+        let content_size = 1 + ipaddr_length + 2; // ipv4 + port;
         let hsize = 2 + 1 + THEADER_SIZE;
         let total = hsize + content_size;
         let mut buf = vec![0; total];
@@ -374,8 +384,24 @@ impl Tunnel {
 
         let msg_body = &mut buf[hsize..];
         *offset = 0;
-        msg_body.write_with::<u8>(offset, 0, LE).unwrap(); // address type
-        msg_body.write_with::<u32>(offset, ip, LE).unwrap(); // ip
+
+        match ip {
+            V4(v4) => {
+                msg_body.write_with::<u8>(offset, 0, LE).unwrap(); // address type, ipv4
+                let ipbytes = v4.octets();
+                for b in ipbytes.iter() {
+                    msg_body.write_with::<u8>(offset, *b, LE).unwrap(); // ip
+                }
+            },
+            V6(v6) => {
+                msg_body.write_with::<u8>(offset, 2, LE).unwrap(); // address type, ipv6
+                let ipbytes = v6.segments();
+                for b in ipbytes.iter() {
+                    msg_body.write_with::<u16>(offset, *b, LE).unwrap(); // ip
+                }
+            }
+        }
+
         msg_body.write_with::<u16>(offset, port, LE).unwrap(); // port
 
         // websocket message

@@ -5,6 +5,7 @@ use crate::config::{TunCfg, KEEP_ALIVE_INTERVAL};
 use failure::Error;
 use log::{debug, error, info};
 use std::cell::RefCell;
+use std::net::IpAddr;
 use std::rc::Rc;
 use std::result::Result;
 use std::time::{Duration, Instant};
@@ -155,7 +156,7 @@ impl TunMgr {
         }
     }
 
-    pub fn on_request_created(&mut self, req: Request) -> Option<TunStub> {
+    pub fn on_request_created(&mut self, req: Request, ip: IpAddr, port: u16) -> Option<TunStub> {
         info!("[TunMgr]on_request_created");
         if self.discarded != false {
             error!("[TunMgr]on_request_created, tunmgr is discarded, request will be discarded");
@@ -165,7 +166,7 @@ impl TunMgr {
 
         if let Some(tun) = self.alloc_tunnel_for_req() {
             let mut tun = tun.borrow_mut();
-            tun.on_request_created(req)
+            tun.on_request_created(req, ip, port)
         } else {
             None
         }

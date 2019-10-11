@@ -15,6 +15,7 @@ const IPSET_ATTR_SETNAME: u16 = 2;
 const NLA_F_NESTED: u16 = (1 << 15);
 const IPSET_ATTR_DATA: u16 = 7;
 const IPSET_ATTR_IPADDR_IPV4: u16 = 1;
+const IPSET_ATTR_IPADDR_IPV6: u16 = 2;
 const IPSET_ATTR_IP: u16 = 1;
 const NLA_F_NET_BYTEORDER: u16 = (1 << 14);
 
@@ -117,7 +118,13 @@ pub fn construct_ipset_packet(setname: &str, ipvec: &[u8], out: &mut [u8]) -> u3
     let proto: u8 = IPSET_PROTOCOL;
     let attr2 = NlAttr::new_data(IPSET_ATTR_SETNAME, setname.len() as u16);
     let iplen = ipvec.len();
-    let attr5 = NlAttr::new_data(IPSET_ATTR_IPADDR_IPV4 | NLA_F_NET_BYTEORDER, iplen as u16);
+    let ipaddr_type = if iplen > 4 {
+        IPSET_ATTR_IPADDR_IPV6
+    } else {
+        IPSET_ATTR_IPADDR_IPV4
+    };
+
+    let attr5 = NlAttr::new_data(ipaddr_type | NLA_F_NET_BYTEORDER, iplen as u16);
     let attr4 = NlAttr::new_data(NLA_F_NESTED | IPSET_ATTR_IP, attr5.align_size() as u16);
     let attr3 = NlAttr::new_data(NLA_F_NESTED | IPSET_ATTR_DATA, attr4.align_size() as u16);
 
