@@ -31,10 +31,11 @@ pub struct Tunnel {
     rawfd: RawFd,
 
     busy: usize,
+    request_quota:u16,
 }
 
 impl Tunnel {
-    pub fn new(tx: UnboundedSender<WMessage>, rawfd: RawFd, idx: usize, cap: usize) -> Tunnel {
+    pub fn new(tx: UnboundedSender<WMessage>, rawfd: RawFd, idx: usize, cap: usize, request_quota:u16) -> Tunnel {
         info!("[Tunnel]new Tunnel, idx:{}", idx);
         let size = 5;
         let rtt_queue = vec![0; size];
@@ -53,6 +54,7 @@ impl Tunnel {
             time: Instant::now(),
             rawfd: rawfd,
             busy: 0,
+            request_quota
         }
     }
 
@@ -288,6 +290,7 @@ impl Tunnel {
             tun_idx: tun_idx,
             req_idx: idx,
             req_tag: tag,
+            request_quota: self.request_quota,
         })
     }
 

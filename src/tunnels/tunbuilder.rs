@@ -1,6 +1,5 @@
 use super::TunMgr;
 use super::Tunnel;
-use crate::config::DEFAULT_REQ_QUOTA;
 use crate::lws;
 use futures::{Future, Stream};
 use log::{debug, error, info};
@@ -19,9 +18,10 @@ pub fn connect(tm: &TunMgr, mgr2: Rc<RefCell<TunMgr>>, index: usize) {
     let relay_port = tm.relay_port;
     let ws_url = &tm.url;
     let tunnel_req_cap = tm.tunnel_req_cap;
+    let request_quota = tm.request_quota;
     let ws_url = format!(
         "{}?cap={}&quota={}",
-        ws_url, tunnel_req_cap, DEFAULT_REQ_QUOTA
+        ws_url, tunnel_req_cap, request_quota
     );
     let url = url::Url::parse(&ws_url).unwrap();
 
@@ -44,7 +44,7 @@ pub fn connect(tm: &TunMgr, mgr2: Rc<RefCell<TunMgr>>, index: usize) {
             // send us messages. Then register our address with the stream to send
             // data to us.
             let (tx, rx) = futures::sync::mpsc::unbounded();
-            let t = Rc::new(RefCell::new(Tunnel::new(tx, rawfd, index, tunnel_req_cap)));
+            let t = Rc::new(RefCell::new(Tunnel::new(tx, rawfd, index, tunnel_req_cap, request_quota)));
             let mut rf = mgr1.borrow_mut();
             if let Err(_) = rf.on_tunnel_created(t.clone()) {
                 // TODO: should return directly

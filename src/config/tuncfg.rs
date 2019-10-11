@@ -15,6 +15,7 @@ pub struct TunCfg {
 
     pub domain_array: Option<Vec<String>>,
     pub local_dns_server: String,
+    pub request_quota: usize,
 }
 
 // impl TunCfg {
@@ -86,6 +87,11 @@ impl AuthResp {
             let tunnel_number = match v_tuncfg["tunnel_number"].as_u64() {
                 Some(t) => t as usize,
                 None => 2,
+            };
+
+            let request_quota = match v_tuncfg["request_quota"].as_u64() {
+                Some(t) => t as usize,
+                None => 10,
             };
 
             let websocket_url = match v_tuncfg["websocket_url"].as_str() {
@@ -164,6 +170,7 @@ impl AuthResp {
                 dns_tunnel_number: dns_tunnel_number,
                 domain_array: Some(domain_array),
                 local_dns_server,
+                request_quota,
             };
 
             tuncfg = Some(tc);

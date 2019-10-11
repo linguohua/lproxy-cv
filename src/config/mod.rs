@@ -14,5 +14,3 @@ pub const KEEP_ALIVE_INTERVAL: u64 = 15 * 1000;
 //  pub const CFG_MONITOR_INTERVAL: u64 = 60 * 1000;
 pub const CFG_MONITOR_INTERVAL: u64 = 30 * 60 * 1000;
 pub const LPROXY_SCRIPT: &str = "lps.sh";
-
-pub const DEFAULT_REQ_QUOTA: u16 = 1000;

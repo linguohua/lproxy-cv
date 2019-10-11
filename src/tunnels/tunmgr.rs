@@ -23,6 +23,7 @@ pub struct TunMgr {
     pub url: String,
     capacity: usize,
     pub tunnel_req_cap: usize,
+    pub request_quota: u16,
     tunnels: Vec<TunnelItem>,
     sorted_tun_indies: Vec<u16>,
     current_tun_idx: u16,
@@ -55,6 +56,7 @@ impl TunMgr {
             keepalive_trigger: None,
             sorted_tun_indies: sv,
             current_tun_idx: 0,
+            request_quota: cfg.request_quota as u16,
         }))
     }
 

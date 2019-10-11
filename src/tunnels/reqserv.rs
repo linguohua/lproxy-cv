@@ -1,6 +1,5 @@
 use super::Request;
 use super::{Cmd, THeader, TunMgr, TunStub, THEADER_SIZE};
-use crate::config::DEFAULT_REQ_QUOTA;
 use crate::lws::{TMessage, TcpFramed, WMessage};
 use byte::*;
 use log::{error, info};
@@ -67,14 +66,16 @@ pub fn serve_sock(socket: TcpStream, mgr: Rc<RefCell<TunMgr>>) {
     let tunstub = Rc::new(RefCell::new(tunstub.unwrap()));
     let req_idx = tunstub.borrow().req_idx;
     let req_tag = tunstub.borrow().req_tag;
+    let request_quota = tunstub.borrow().request_quota;
 
     // let mgr2 = mgr.clone();
     let tunstub2 = tunstub.clone();
 
     let mut write_out: u16 = 0;
+    let quota_report_threshold = (request_quota / 2) as u16;
     let rx = rx.map(move |item| {
         write_out += 1;
-        if write_out == (DEFAULT_REQ_QUOTA / 8) {
+        if write_out == quota_report_threshold {
             let ts = &tunstub2.borrow();
             send_request_quota(ts, write_out);
 
