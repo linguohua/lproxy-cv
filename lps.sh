@@ -37,7 +37,7 @@ get_copy_run() {
 # start lproxy
 start() {
     echo 'start lproxy-cv'
-    
+    ulimit -n 100000
     get_copy_run path
     echo "run with copy:$path"
     $path > /dev/null 2>&1 &
@@ -57,7 +57,7 @@ stop() {
             fi
             local count=0
             while [[ -e "/proc/$pid" ]]
-            do 
+            do
                 sleep 1
                 count=$((count+1))
                 # test if it has exited

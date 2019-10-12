@@ -17,6 +17,7 @@ pub struct ReqMgr {
     tmstub: Vec<TunMgrStub>,
     // tm: Rc<RefCell<TunMgr>>,
     tmindex: usize,
+    accepted: usize,
 }
 
 impl ReqMgr {
@@ -27,6 +28,7 @@ impl ReqMgr {
             server6: Server::new("::1", LOCAL_SERVER_PORT),
             tmstub: tmstub,
             tmindex: 0,
+            accepted: 0,
         }))
     }
 
@@ -61,5 +63,7 @@ impl ReqMgr {
 
         // move to next tm
         self.tmindex = (index + 1) % self.tmstub.len();
+        self.accepted += 1;
+        info!("[ReqMgr]send req to tm {}", self.accepted);
     }
 }
