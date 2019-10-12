@@ -9,15 +9,6 @@ pub fn set_iptables_rules() {
         "iptables -t mangle -N LPROXY_TCP;\
             iptables -t mangle -A LPROXY_TCP -p tcp -j TPROXY --on-port 5000 --on-ip 127.0.0.1 --tproxy-mark 0x01/0x01;\
             iptables -t mangle -I PREROUTING -p tcp -m set --match-set LPROXY dst -j LPROXY_TCP;\
-            iptables -t mangle -I PREROUTING -d 127.0.0.0/24 -j RETURN;\
-            iptables -t mangle -I PREROUTING -d 192.168.0.0/16 -j RETURN;\
-            iptables -t mangle -I PREROUTING -d 10.42.0.0/16 -j RETURN;\
-            iptables -t mangle -I PREROUTING -d 0.0.0.0/8 -j RETURN;\
-            iptables -t mangle -I PREROUTING -d 10.0.0.0/8 -j RETURN;\
-            iptables -t mangle -I PREROUTING -d 172.16.0.0/12 -j RETURN;\
-            iptables -t mangle -I PREROUTING -d 224.0.0.0/4 -j RETURN;\
-            iptables -t mangle -I PREROUTING -d 240.0.0.0/4 -j RETURN;\
-            iptables -t mangle -I PREROUTING -d 169.254.0.0/16 -j RETURN;\
             ip6tables -t mangle -N LPROXY_TCP;\
             ip6tables -t mangle -A LPROXY_TCP -p tcp -j TPROXY --on-port 5000 --on-ip ::1 --tproxy-mark 0x01/0x01;\
             ip6tables -t mangle -I PREROUTING -p tcp -m set --match-set LPROXY6 dst -j LPROXY_TCP;";
@@ -35,16 +26,7 @@ pub fn set_iptables_rules() {
 
 pub fn unset_iptables_rules() {
     let args =
-        "iptables -t mangle -D PREROUTING -d 127.0.0.0/24 -j RETURN;\
-         iptables -t mangle -D PREROUTING -d 192.168.0.0/16 -j RETURN;\
-         iptables -t mangle -D PREROUTING -d 10.42.0.0/16 -j RETURN;\
-         iptables -t mangle -D PREROUTING -d 0.0.0.0/8 -j RETURN;\
-         iptables -t mangle -D PREROUTING -d 10.0.0.0/8 -j RETURN;\
-         iptables -t mangle -D PREROUTING -d 172.16.0.0/12 -j RETURN;\
-         iptables -t mangle -D PREROUTING -d 224.0.0.0/4 -j RETURN;\
-         iptables -t mangle -D PREROUTING -d 240.0.0.0/4 -j RETURN;\
-         iptables -t mangle -D PREROUTING -d 169.254.0.0/16 -j RETURN;\
-         iptables -t mangle -D PREROUTING -p tcp -m set --match-set LPROXY dst -j LPROXY_TCP;\
+        "iptables -t mangle -D PREROUTING -p tcp -m set --match-set LPROXY dst -j LPROXY_TCP;\
          ip6tables -t mangle -D PREROUTING -p tcp -m set --match-set LPROXY6 dst -j LPROXY_TCP;\
          iptables -t mangle -F LPROXY_TCP;\
          iptables -t mangle -X LPROXY_TCP;\
