@@ -48,8 +48,8 @@ pub fn unset_iptables_rules() {
          ip6tables -t mangle -D PREROUTING -p tcp -m set --match-set LPROXY6 dst -j LPROXY_TCP;\
          iptables -t mangle -F LPROXY_TCP;\
          iptables -t mangle -X LPROXY_TCP;\
-         ip6tables -t mangle -F LPROXY_TCP6;\
-         ip6tables -t mangle -X LPROXY_TCP6";
+         ip6tables -t mangle -F LPROXY_TCP;\
+         ip6tables -t mangle -X LPROXY_TCP";
 
     // iptables -t mangle -F DIVERT;\
     // iptables -t mangle -X DIVERT;\
