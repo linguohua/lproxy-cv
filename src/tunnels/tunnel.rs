@@ -1,5 +1,3 @@
-use std::net::IpAddr::{V4, V6};
-use std::net::IpAddr;
 use super::Cmd;
 use super::THeader;
 use super::{Reqq, Request, TunStub};
@@ -9,6 +7,8 @@ use byte::*;
 use futures::sync::mpsc::UnboundedSender;
 use log::{error, info};
 use nix::sys::socket::{shutdown, Shutdown};
+use std::net::IpAddr;
+use std::net::IpAddr::{V4, V6};
 use std::os::unix::io::RawFd;
 use std::time::Instant;
 
@@ -31,11 +31,17 @@ pub struct Tunnel {
     rawfd: RawFd,
 
     busy: usize,
-    request_quota:u16,
+    request_quota: u16,
 }
 
 impl Tunnel {
-    pub fn new(tx: UnboundedSender<WMessage>, rawfd: RawFd, idx: usize, cap: usize, request_quota:u16) -> Tunnel {
+    pub fn new(
+        tx: UnboundedSender<WMessage>,
+        rawfd: RawFd,
+        idx: usize,
+        cap: usize,
+        request_quota: u16,
+    ) -> Tunnel {
         info!("[Tunnel]new Tunnel, idx:{}", idx);
         let size = 5;
         let rtt_queue = vec![0; size];
@@ -54,7 +60,7 @@ impl Tunnel {
             time: Instant::now(),
             rawfd: rawfd,
             busy: 0,
-            request_quota
+            request_quota,
         }
     }
 
@@ -363,7 +369,7 @@ impl Tunnel {
         match ip {
             V4(_) => {
                 ipaddr_length = 4;
-            },
+            }
             V6(_) => {
                 ipaddr_length = 16;
             }
@@ -395,7 +401,7 @@ impl Tunnel {
                 for b in ipbytes.iter() {
                     msg_body.write_with::<u8>(offset, *b, LE).unwrap(); // ip
                 }
-            },
+            }
             V6(v6) => {
                 msg_body.write_with::<u8>(offset, 2, LE).unwrap(); // address type, ipv6
                 let ipbytes = v6.segments();

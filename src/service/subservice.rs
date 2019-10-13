@@ -2,6 +2,7 @@ use crate::config::TunCfg;
 use crate::dns;
 use crate::requests;
 use crate::tunnels;
+use crate::xport;
 use futures::future::lazy;
 use futures::stream::iter_ok;
 use futures::stream::Stream;
@@ -69,6 +70,52 @@ fn start_forwarder(
                     }
                     _ => {
                         error!("[SubService]forwarder unknown ctl cmd:{}", cmd);
+                    }
+                }
+
+                Ok(())
+            });
+
+            current_thread::spawn(fut);
+
+            Ok(())
+        });
+
+        rt.spawn(fut);
+        rt.run().unwrap();
+    });
+
+    SubServiceCtl {
+        handler: Some(handler),
+        ctl_tx: Some(tx),
+    }
+}
+
+fn start_xtunnel(cfg: Arc<TunCfg>, r_tx: futures::Complete<bool>) -> SubServiceCtl {
+    let (tx, rx) = unbounded();
+    let handler = std::thread::spawn(move || {
+        let mut rt = Runtime::new().unwrap();
+        let fut = lazy(move || {
+            let xtun = xport::XTunnel::new(&cfg);
+            // thread code
+            if let Err(e) = xtun.borrow_mut().start(xtun.clone()) {
+                error!("[SubService]xtun start failed:{}", e);
+
+                r_tx.send(false).unwrap();
+                return Ok(());
+            }
+
+            r_tx.send(true).unwrap();
+
+            // wait control signals
+            let fut = rx.for_each(move |cmd| {
+                match cmd {
+                    SubServiceCtlCmd::Stop => {
+                        let f = xtun.clone();
+                        f.borrow_mut().stop();
+                    }
+                    _ => {
+                        error!("[SubService]xtun unknown ctl cmd:{}", cmd);
                     }
                 }
 
@@ -241,6 +288,7 @@ pub fn start_subservice(
     domains: Vec<String>,
 ) -> impl Future<Item = SubsctlVec, Error = ()> {
     let cfg2 = cfg.clone();
+    let cfg3 = cfg.clone();
 
     // start tunmgr first
     let tunmgr_fut = start_tunmgr(cfg.clone());
@@ -288,7 +336,24 @@ pub fn start_subservice(
             })
     });
 
-    forward_fut
+    // xtunnel
+    let xtun_fut = forward_fut.and_then(move |subservices| {
+        let (tx, rx) = futures::oneshot();
+        let v = subservices.clone();
+        to_future(rx, start_xtunnel(cfg3.clone(), tx))
+            .and_then(|ctl| {
+                subservices.borrow_mut().push(ctl);
+                Ok(subservices)
+            })
+            .or_else(move |_| {
+                let vec_subservices = &mut v.borrow_mut();
+                // WARNING: block current thread
+                cleanup_subservices(vec_subservices);
+                Err(())
+            })
+    });
+
+    xtun_fut
 }
 
 pub fn cleanup_subservices(subservices: &mut Vec<SubServiceCtl>) {

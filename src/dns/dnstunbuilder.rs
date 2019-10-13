@@ -1,5 +1,6 @@
 use super::DnsTunnel;
 use super::Forwarder;
+use crate::tunnels::ws_connect_async;
 use futures::sync::mpsc::UnboundedSender;
 use futures::{Future, Stream};
 use log::{debug, error, info};
@@ -9,7 +10,6 @@ use std::rc::Rc;
 use tokio;
 use tokio::runtime::current_thread;
 use url;
-use crate::tunnels::ws_connect_async;
 
 pub type TxType = UnboundedSender<(bytes::Bytes, std::net::SocketAddr)>;
 
@@ -57,10 +57,7 @@ pub fn connect(fw: &Forwarder, mgr2: Rc<RefCell<Forwarder>>, index: usize, udp_t
             });
 
             let rx = rx.map_err(|_| {
-                std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    "[dnstunbuilder] rx-shit",
-                )
+                std::io::Error::new(std::io::ErrorKind::Other, "[dnstunbuilder] rx-shit")
             });
 
             let send_fut = rx.forward(sink);

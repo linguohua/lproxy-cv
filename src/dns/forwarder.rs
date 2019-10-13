@@ -6,8 +6,8 @@ use super::DnsTunnel;
 use super::LocalResolver;
 use super::UdpServer;
 use crate::config::{
-    TunCfg, IPSET_TABLE_NULL, KEEP_ALIVE_INTERVAL, LOCAL_SERVER, LOCAL_SERVER_PORT,
-    IPSET_TABLE6_NULL,
+    TunCfg, IPSET_TABLE6_NULL, IPSET_TABLE_NULL, KEEP_ALIVE_INTERVAL, LOCAL_SERVER,
+    LOCAL_SERVER_PORT,
 };
 use failure::Error;
 use log::{debug, error, info};

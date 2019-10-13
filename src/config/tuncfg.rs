@@ -16,6 +16,9 @@ pub struct TunCfg {
     pub domain_array: Option<Vec<String>>,
     pub local_dns_server: String,
     pub request_quota: usize,
+
+    pub xport_url: String,
+    pub token: String,
 }
 
 // impl TunCfg {
@@ -65,6 +68,7 @@ impl AuthResp {
     pub fn from_json_str(s: &str) -> AuthResp {
         use serde_json::Value;
         let v: Value = serde_json::from_str(s).unwrap();
+        let token = v["token"].to_string();
 
         let restart = match v["restart"].as_bool() {
             Some(x) => x,
@@ -99,10 +103,10 @@ impl AuthResp {
                 None => "wss://127.0.0.1/tun".to_string(),
             };
 
-            // let local_server = match v_tuncfg["local_server"].as_str() {
-            //     Some(t) => t.to_string(),
-            //     None => "127.0.0.1:5000".to_string(),
-            // };
+            let xport_url = match v_tuncfg["xport_url"].as_str() {
+                Some(t) => t.to_string(),
+                None => "https://localhost:5000/xport".to_string(),
+            };
 
             let tunnel_req_cap = match v_tuncfg["tunnel_req_cap"].as_u64() {
                 Some(t) => t as usize,
@@ -171,13 +175,15 @@ impl AuthResp {
                 domain_array: Some(domain_array),
                 local_dns_server,
                 request_quota,
+                xport_url,
+                token: token.to_string(),
             };
 
             tuncfg = Some(tc);
         };
 
         AuthResp {
-            token: v["token"].to_string(),
+            token,
             restart: restart,
             tuncfg: tuncfg,
             need_upgrade,

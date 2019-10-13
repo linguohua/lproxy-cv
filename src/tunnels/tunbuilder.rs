@@ -21,7 +21,12 @@ pub fn connect(tm: &TunMgr, mgr2: Rc<RefCell<TunMgr>>, index: usize) {
     let ws_url = &tm.url;
     let tunnel_req_cap = tm.tunnel_req_cap;
     let request_quota = tm.request_quota;
-    let ws_url = format!("{}?cap={}&quota={}", ws_url, tunnel_req_cap, request_quota);
+    let token = &tm.token;
+
+    let ws_url = format!(
+        "{}?tok={}&cap={}&quota={}",
+        ws_url, token, tunnel_req_cap, request_quota
+    );
     let url = url::Url::parse(&ws_url).unwrap();
 
     let mgr1 = mgr2.clone();

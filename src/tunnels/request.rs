@@ -1,7 +1,7 @@
+use crate::lws::WMessage;
 use futures::sync::mpsc::UnboundedSender;
 use std::fmt;
 use stream_cancel::Trigger;
-use crate::lws::WMessage;
 
 pub struct Request {
     pub index: u16,
@@ -30,17 +30,13 @@ impl Request {
             tag: 0,
             request_tx: Some(tx),
             trigger: Some(trigger),
-            write_out:0,
+            write_out: 0,
         }
     }
 }
 
 impl fmt::Debug for Request {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "Req {{ indx: {}, tag: {}}}",
-            self.index, self.tag,
-        )
+        write!(f, "Req {{ indx: {}, tag: {}}}", self.index, self.tag,)
     }
 }

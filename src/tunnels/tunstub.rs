@@ -1,6 +1,6 @@
+use crate::lws::WMessage;
 use futures::sync::mpsc::UnboundedSender;
 use std::fmt;
-use crate::lws::WMessage;
 
 pub struct TunStub {
     pub tunnel_tx: UnboundedSender<WMessage>,

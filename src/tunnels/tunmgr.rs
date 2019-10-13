@@ -30,6 +30,7 @@ pub struct TunMgr {
     reconnect_queue: Vec<u16>,
     discarded: bool,
     keepalive_trigger: Option<Trigger>,
+    pub token: String,
 }
 
 impl TunMgr {
@@ -44,6 +45,7 @@ impl TunMgr {
             sv.push(n as u16);
         }
 
+        let token = cfg.token.to_string();
         Rc::new(RefCell::new(TunMgr {
             url: cfg.websocket_url.to_string(),
             capacity: capacity,
@@ -57,6 +59,7 @@ impl TunMgr {
             sorted_tun_indies: sv,
             current_tun_idx: 0,
             request_quota: cfg.request_quota as u16,
+            token,
         }))
     }
 
