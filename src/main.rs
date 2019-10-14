@@ -42,6 +42,7 @@ fn main() {
     config::log_init().unwrap();
     let args: Vec<String> = env::args().collect();
     // println!("{:?}", args);
+    let mut uuid: String = String::default();
     if args.len() > 1 {
         let s = args.get(1).unwrap();
         if s == "-v" {
@@ -50,7 +51,17 @@ fn main() {
         } else if s == "-vn" {
             println!("{}", to_version_number(VERSION));
             std::process::exit(0);
+        } else if s == "-u" {
+            if args.len() > 2 {
+                let uuidstr = args.get(2).unwrap();
+                uuid = uuidstr.to_string();
+            }
         }
+    }
+
+    if uuid == "" {
+        println!("please specify the uuid with -u");
+        std::process::exit(1);
     }
 
     let lockfile = OpenOptions::new()
@@ -101,12 +112,12 @@ fn main() {
         }
     }
 
-    info!("try to start lproxy-cv server, ver:{}", VERSION);
+    info!("try to start lproxy-cv server, ver:{}, uuid: {}", VERSION, uuid);
     let mut rt = Runtime::new().unwrap();
     // let handle = rt.handle();
 
-    let l = lazy(|| {
-        let s = Service::new();
+    let l = lazy(move || {
+        let s = Service::new(uuid);
         s.borrow_mut().start(s.clone());
 
         let wait_signal = Signals::new(&[signal_hook::SIGUSR1])

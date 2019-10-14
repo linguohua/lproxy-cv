@@ -51,10 +51,11 @@ pub struct Service {
     instruction_trigger: Option<Trigger>,
     domains: Option<Vec<String>>,
     is_upgrading: bool,
+    uuid: String,
 }
 
 impl Service {
-    pub fn new() -> LongLive {
+    pub fn new(uuid: String) -> LongLive {
         Rc::new(RefCell::new(Service {
             subservices: Vec::new(),
             ins_tx: None,
@@ -64,6 +65,7 @@ impl Service {
             state: 0,
             domains: None,
             is_upgrading: false,
+            uuid,
         }))
     }
 
@@ -158,6 +160,7 @@ impl Service {
 
     fn do_auth(s: LongLive) {
         info!("[Service]do_auth");
+        let uuid;
         {
             if s.borrow().is_upgrading {
                 let seconds = 30;
@@ -169,6 +172,9 @@ impl Service {
                 return;
             }
         }
+        {
+            uuid = s.borrow().uuid.to_string();
+        }
 
         let httpserver = config::server_url();
         let dns_server = Some(DEFAULT_DNS_SERVER.to_string());
@@ -177,7 +183,7 @@ impl Service {
 
         let sclone = s.clone();
         let ar = config::AuthReq {
-            uuid: "abc-efg-hij-klm".to_string(),
+            uuid,
             current_version: crate::VERSION.to_string(),
         };
 
@@ -244,10 +250,14 @@ impl Service {
 
     fn do_cfg_monitor(s: LongLive) {
         info!("[Service]do_cfg_monitor");
+        let uuid;
+        {
+            uuid = s.borrow().uuid.to_string();
+        }
 
         let httpserver = config::server_url();
         let ar = config::AuthReq {
-            uuid: "abc-efg-hij-klm".to_string(),
+            uuid,
             current_version: crate::VERSION.to_string(),
         };
 
