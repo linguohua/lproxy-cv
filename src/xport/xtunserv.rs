@@ -7,7 +7,7 @@ use tokio::runtime::current_thread;
 
 pub fn xtunel_connect(xtun: &mut XTunnel, ll: LongLive) {
     let ws_url = &xtun.url_string;
-    let ws_url = format!("{}?cap={}&token={}", ws_url, xtun.req_cap, xtun.token);
+    let ws_url = format!("{}?cap={}&tok={}", ws_url, xtun.req_cap, xtun.token);
     let url = url::Url::parse(&ws_url).unwrap(); // should not failed
     let relay_domain = url.host_str().unwrap(); // should not failed
     let relay_domain = relay_domain.to_string();

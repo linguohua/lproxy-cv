@@ -90,7 +90,7 @@ fn proxy_request_internal(
     let receive_fut = stream.take_until(tripwire).for_each(move |message| {
         let mut tun_b = tl2.borrow_mut();
         // post to manager
-        if tun_b.on_request_msg(message, req_idx, req_tag) {
+        if !tun_b.on_request_msg(message, req_idx, req_tag) {
             return Err(std::io::Error::from(std::io::ErrorKind::Other));
         }
 
@@ -108,8 +108,14 @@ fn proxy_request_internal(
 
     // Wait for both futures to complete.
     let receive_fut = receive_fut
-        .map_err(|_| ())
-        .join(send_fut.map_err(|_| ()))
+        .map_err(|err| {
+            error!("[XPort] tcp receive_fut error:{}", err);
+            ()
+        })
+        .join(send_fut.map_err(|err| {
+            error!("[XPort] tcp send_fut error:{}", err);
+            ()
+        }))
         .then(move |_| {
             info!("[XPort] tcp both futures completed");
             let mut tun = tl4.borrow_mut();

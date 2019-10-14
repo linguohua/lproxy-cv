@@ -21,23 +21,6 @@ pub struct TunCfg {
     pub token: String,
 }
 
-// impl TunCfg {
-// pub fn new() -> TunCfg {
-//     TunCfg {
-//         tunnel_number: 2,
-//         websocket_url: "wss://127.0.0.1/tun".to_string(),
-//         local_server: "127.0.0.1:5000".to_string(),
-//         tunnel_req_cap: 100,
-//         relay_domain: "127.0.0.1".to_string(),
-//         relay_port: 12345,
-
-//         dns_udp_addr: "127.0.0.1:5000".to_string(),
-//         dns_tun_url: "wss://127.0.0.1/dns".to_string(),
-//         dns_tunnel_number: 1,
-//     }
-// }
-// }
-
 pub fn server_url() -> String {
     "https://127.0.0.1:8000/auth".to_string()
 }
@@ -68,7 +51,10 @@ impl AuthResp {
     pub fn from_json_str(s: &str) -> AuthResp {
         use serde_json::Value;
         let v: Value = serde_json::from_str(s).unwrap();
-        let token = v["token"].to_string();
+        let mut token = "";
+        if v["token"].is_string() {
+            token = v["token"].as_str().unwrap();
+        }
 
         let restart = match v["restart"].as_bool() {
             Some(x) => x,
@@ -105,7 +91,7 @@ impl AuthResp {
 
             let xport_url = match v_tuncfg["xport_url"].as_str() {
                 Some(t) => t.to_string(),
-                None => "https://localhost:5000/xport".to_string(),
+                None => "https://localhost:8000/xportlws".to_string(),
             };
 
             let tunnel_req_cap = match v_tuncfg["tunnel_req_cap"].as_u64() {
@@ -183,7 +169,7 @@ impl AuthResp {
         };
 
         AuthResp {
-            token,
+            token: token.to_string(),
             restart: restart,
             tuncfg: tuncfg,
             need_upgrade,

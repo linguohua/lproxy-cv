@@ -147,7 +147,7 @@ impl XTunnel {
     fn process_reconnect(&mut self, s: LongLive) {
         if self.need_reconnect {
             xtunel_connect(self, s);
-
+            self.ping_count = 0;
             self.need_reconnect = false;
         }
     }
@@ -182,6 +182,7 @@ impl XTunnel {
         let ping_count = self.ping_count;
         if ping_count > 10 {
             // exceed max ping count
+            info!("[XPort] ping exceed max, close rawfd");
             self.close_rawfd();
 
             return;
@@ -505,10 +506,12 @@ impl XTunnel {
 
     pub fn on_request_msg(&mut self, mut message: TMessage, req_idx: u16, req_tag: u16) -> bool {
         if !self.check_req_valid(req_idx, req_tag) {
+            error!("[XPort] on_request_msg failed, check_req_valid false");
             return false;
         }
 
         if self.tun_tx.is_none() {
+            error!("[XPort] on_request_msg failed, tun_tx is none");
             return false;
         }
 

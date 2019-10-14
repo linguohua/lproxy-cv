@@ -191,10 +191,9 @@ impl Service {
         let fut = req
             .exec(Some(arstr))
             .and_then(move |response| {
-                // info!("[Service]do_auth http response:{:?}", response);
-
                 let mut retry = true;
                 if let Some(mut rsp) = Service::parse_auth_reply(&response) {
+                    info!("[Service]do_auth http response token:{}", rsp.token);
                     // first check if we need upgrade
                     if rsp.need_upgrade && rsp.upgrade_url.len() > 0 {
                         let dir = Service::get_upgrade_target_filepath();
