@@ -4,7 +4,8 @@ BASEDIR="$( cd "$( dirname "$0" )" && pwd )"
 ACOPY="$BASEDIR/a/lproxy-cv"
 BCOPY="$BASEDIR/b/lproxy-cv"
 PIDFILE="/var/run/lproxy-cv.pid"
-
+#change for each device
+UUID=""
 # get the version of this copy
 get_copy_version() {
     local  __resultvar=$1
@@ -40,7 +41,7 @@ start() {
     ulimit -n 100000
     get_copy_run path
     echo "run with copy:$path"
-    $path > /dev/null 2>&1 &
+    "$path -u $UUID" > /dev/null 2>&1 &
     #$path
 }
 
