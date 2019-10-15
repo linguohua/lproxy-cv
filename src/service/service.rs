@@ -379,19 +379,32 @@ impl Service {
         let p = Path::new(&dir);
         let parent = p.parent().unwrap();
 
+        let dir1;
+        let dir2;
+        let dir3;
         if parent.ends_with("b") {
             let parent1 = parent.parent().unwrap();
-            let dir1 = parent1.join("a/lproxy-cv");
-            let dir2 = parent1.join(LPROXY_SCRIPT);
-            return Some((dir1, dir2));
+            dir3 = parent1.join("a");
+            dir1 = parent1.join("a/lproxy-cv");
+            dir2 = parent1.join(LPROXY_SCRIPT);
         } else if parent.ends_with("a") {
             let parent1 = parent.parent().unwrap();
-            let dir1 = parent1.join("b/lproxy-cv");
-            let dir2 = parent1.join(LPROXY_SCRIPT);
-            return Some((dir1, dir2));
+            dir3 = parent1.join("b");
+            dir1 = parent1.join("b/lproxy-cv");
+            dir2 = parent1.join(LPROXY_SCRIPT);
+        } else {
+            return None;
         }
 
-        None
+        let path = Path::new(&dir3);
+        if !path.exists() {
+            if let Err(e) = std::fs::create_dir_all(path) {
+                error!("[Service] create dir all failed:{}", e);
+                return None;
+            }
+        }
+
+        return Some((dir1, dir2));
     }
 
     fn delay_post_instruction(s: LongLive, seconds: u64, ins: Instruction) {
