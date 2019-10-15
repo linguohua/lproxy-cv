@@ -40,6 +40,7 @@ impl AuthReq {
 }
 
 pub struct AuthResp {
+    pub error: i64,
     pub token: String,
     pub restart: bool,
     pub need_upgrade: bool,
@@ -55,6 +56,11 @@ impl AuthResp {
         if v["token"].is_string() {
             token = v["token"].as_str().unwrap();
         }
+
+        let error = match v["error"].as_i64() {
+            Some(t) => t,
+            None => 0,
+        };
 
         let restart = match v["restart"].as_bool() {
             Some(x) => x,
@@ -174,6 +180,7 @@ impl AuthResp {
             tuncfg: tuncfg,
             need_upgrade,
             upgrade_url,
+            error,
         }
     }
 }

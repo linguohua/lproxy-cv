@@ -194,32 +194,39 @@ impl Service {
                 let mut retry = true;
                 if let Some(mut rsp) = Service::parse_auth_reply(&response) {
                     info!("[Service]do_auth http response token:{}", rsp.token);
-                    // first check if we need upgrade
-                    if rsp.need_upgrade && rsp.upgrade_url.len() > 0 {
-                        let dir = Service::get_upgrade_target_filepath();
-                        if dir.is_none() {
-                            error!("[Service]do_auth, failed to upgrade, no target dir found");
-                        } else {
-                            let sclone2 = sclone.clone();
+                    if rsp.error == 0 {
+                        // first check if we need upgrade
+                        if rsp.need_upgrade && rsp.upgrade_url.len() > 0 {
+                            let dir = Service::get_upgrade_target_filepath();
+                            if dir.is_none() {
+                                error!("[Service]do_auth, failed to upgrade, no target dir found");
+                            } else {
+                                let sclone2 = sclone.clone();
+                                let mut rf = sclone.borrow_mut();
+                                let dir = dir.unwrap();
+                                rf.do_download(sclone2, dir.0, dir.1, &rsp.upgrade_url);
+                            }
+                        } else if rsp.tuncfg.is_some() {
+                            let mut cfg = rsp.tuncfg.take().unwrap();
                             let mut rf = sclone.borrow_mut();
-                            let dir = dir.unwrap();
-                            rf.do_download(sclone2, dir.0, dir.1, &rsp.upgrade_url);
+                            rf.domains = Some(cfg.domain_array.take().unwrap());
+
+                            info!(
+                                "[Service]do_auth http response, tunnel count:{}, req cap:{}",
+                                cfg.tunnel_number, cfg.tunnel_req_cap
+                            );
+
+                            rf.save_cfg(cfg);
+                            rf.fire_instruction(Instruction::StartSubServices);
+                            retry = false;
+                        } else {
+                            error!("[Service]do_auth http request failed, no tuncfg, retry later");
                         }
-                    } else if rsp.tuncfg.is_some() {
-                        let mut cfg = rsp.tuncfg.take().unwrap();
-                        let mut rf = sclone.borrow_mut();
-                        rf.domains = Some(cfg.domain_array.take().unwrap());
-
-                        info!(
-                            "[Service]do_auth http response, tunnel count:{}, req cap:{}",
-                            cfg.tunnel_number, cfg.tunnel_req_cap
-                        );
-
-                        rf.save_cfg(cfg);
-                        rf.fire_instruction(Instruction::StartSubServices);
-                        retry = false;
                     } else {
-                        error!("[Service]do_auth http request failed, no tuncfg, retry later");
+                        error!(
+                            "[Service]do_auth, server return error:{}, retry later",
+                            rsp.error
+                        );
                     }
                 } else {
                     error!("[Service]do_auth http request failed, no body, retry later");
@@ -272,27 +279,29 @@ impl Service {
                 // debug!("[Service]do_cfg_monitor http response:{:?}", response);
 
                 if let Some(mut rsp) = Service::parse_auth_reply(&response) {
-                    if rsp.need_upgrade && rsp.upgrade_url.len() > 0 {
-                        // do upgrade
-                        // download from upgrade_url, save to /a or /b directory
-                        // /a or /b determise: if current is /a, the use /b; otherwise reverse
-                        // when download completed, exit, then external monitor will restart me.
-                        let dir = Service::get_upgrade_target_filepath();
-                        if dir.is_none() {
-                            error!(
+                    if rsp.error == 0 {
+                        if rsp.need_upgrade && rsp.upgrade_url.len() > 0 {
+                            // do upgrade
+                            // download from upgrade_url, save to /a or /b directory
+                            // /a or /b determise: if current is /a, the use /b; otherwise reverse
+                            // when download completed, exit, then external monitor will restart me.
+                            let dir = Service::get_upgrade_target_filepath();
+                            if dir.is_none() {
+                                error!(
                                 "[Service]do_cfg_monitor, failed to upgrade, no target dir found"
                             );
-                        } else {
-                            let sclone2 = sclone.clone();
+                            } else {
+                                let sclone2 = sclone.clone();
+                                let mut rf = sclone.borrow_mut();
+                                let dir = dir.unwrap();
+                                rf.do_download(sclone2, dir.0, dir.1, &rsp.upgrade_url);
+                            }
+                        } else if rsp.restart && rsp.tuncfg.is_some() {
+                            let cfg = rsp.tuncfg.take().unwrap();
                             let mut rf = sclone.borrow_mut();
-                            let dir = dir.unwrap();
-                            rf.do_download(sclone2, dir.0, dir.1, &rsp.upgrade_url);
+                            rf.save_cfg(cfg);
+                            rf.fire_instruction(Instruction::Restart);
                         }
-                    } else if rsp.restart && rsp.tuncfg.is_some() {
-                        let cfg = rsp.tuncfg.take().unwrap();
-                        let mut rf = sclone.borrow_mut();
-                        rf.save_cfg(cfg);
-                        rf.fire_instruction(Instruction::Restart);
                     }
                 }
 
