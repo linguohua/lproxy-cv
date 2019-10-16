@@ -180,7 +180,7 @@ impl XTunnel {
 
     fn send_ping(&mut self) {
         let ping_count = self.ping_count;
-        if ping_count > 10 {
+        if ping_count > 5 {
             // exceed max ping count
             info!("[XPort] ping exceed max, close rawfd");
             self.close_rawfd();
