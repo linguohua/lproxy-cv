@@ -41,7 +41,7 @@ start() {
     ulimit -n 100000
     get_copy_run path
     echo "run with copy:$path"
-    $path -u $UUID > /dev/null 2>&1 &
+    $path -u $UUID 2>&1 | logger &
     #$path
 }
 
