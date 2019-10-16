@@ -24,3 +24,5 @@ export PKG_CONFIG_ALLOW_CROSS=1
 #RUSTFLAGS="-C link-arg=-Wl,-dynamic-linker,/lib/ld-musl-x86_64.so.1" cargo build --target x86_64-unknown-linux-musl --release
 
 RUSTFLAGS="-C link-arg=-s -C link-arg=-Wl,-dynamic-linker,/lib/ld-musl-x86_64.so.1" cargo build --target x86_64-unknown-linux-musl --release
+
+#upx -5 target/x86_64-unknown-linux-musl/release/lproxy-cv -o ./lproxy-cv-upx

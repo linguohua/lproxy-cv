@@ -25,3 +25,4 @@ export PKG_CONFIG_ALLOW_CROSS=1
 
 RUSTFLAGS='-C link-arg=-s' cargo build --target mipsel-unknown-linux-musl --release
 
+#upx -5 target/mipsel-unknown-linux-musl/release/lproxy-cv -o ./lproxy-cv-upx
