@@ -1,4 +1,4 @@
-use crate::config::{self, CFG_MONITOR_INTERVAL, DEFAULT_DNS_SERVER, LPROXY_SCRIPT};
+use crate::config::{self, CFG_MONITOR_INTERVAL, LPROXY_SCRIPT};
 use crate::htp;
 use futures::sync::mpsc::UnboundedSender;
 use log::{debug, error, info};
@@ -177,9 +177,7 @@ impl Service {
         }
 
         let httpserver = config::server_url();
-        let dns_server = Some(DEFAULT_DNS_SERVER.to_string());
-        let req =
-            htp::HTTPRequest::new(&httpserver, Some(Duration::from_secs(10)), dns_server).unwrap();
+        let req = htp::HTTPRequest::new(&httpserver, Some(Duration::from_secs(10))).unwrap();
 
         let sclone = s.clone();
         let ar = config::AuthReq {
@@ -268,9 +266,7 @@ impl Service {
         };
 
         let arstr = ar.to_json_str();
-        let dns_server = Some(DEFAULT_DNS_SERVER.to_string());
-        let req =
-            htp::HTTPRequest::new(&httpserver, Some(Duration::from_secs(10)), dns_server).unwrap();
+        let req = htp::HTTPRequest::new(&httpserver, Some(Duration::from_secs(10))).unwrap();
 
         let sclone = s.clone();
         let fut = req
@@ -324,9 +320,8 @@ impl Service {
 
         self.is_upgrading = true;
         let sclone = s.clone();
-        let dns_server = Some(DEFAULT_DNS_SERVER.to_string());
 
-        let req = htp::HTTPRequest::new(url, Some(Duration::from_secs(60)), dns_server).unwrap();
+        let req = htp::HTTPRequest::new(url, Some(Duration::from_secs(60))).unwrap();
         let fut = req
             .exec(None)
             .and_then(move |response| {

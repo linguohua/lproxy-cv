@@ -1,6 +1,6 @@
 use super::TunMgr;
 use super::Tunnel;
-use crate::lws;
+use crate::{dns, lws};
 use futures::{Future, Stream};
 use log::{debug, error, info};
 use native_tls::TlsConnector;
@@ -133,7 +133,13 @@ pub fn ws_connect_async(
     let path = format!("{}{}", path, query);
     info!("ws_connect_async, host:{}, path:{}", host_str, path);
 
-    let fut = tokio_dns::TcpStream::connect((relay_domain, relay_port)).and_then(move |socket| {
+    let fut = dns::MyDns::new(relay_domain.to_string());
+    let fut = fut.and_then(move |ipaddr| {
+        let addr = std::net::SocketAddr::new(ipaddr, relay_port);
+        tokio_tcp::TcpStream::connect(&addr)
+    });
+
+    let fut = fut.and_then(move |socket| {
         let rawfd = socket.as_raw_fd();
         let tls_handshake = cx.connect(&host_str, socket);
         let fut = tls_handshake

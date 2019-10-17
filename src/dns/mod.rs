@@ -14,5 +14,5 @@ mod lresolver;
 pub use lresolver::*;
 mod netlink;
 pub use netlink::*;
-mod query;
-pub use query::*;
+mod mydns;
+pub use mydns::*;

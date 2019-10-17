@@ -1,38 +1,17 @@
+use crate::dns;
 use failure::Error;
-use futures::future::ok;
 use futures::future::Either;
 use futures::Future;
-use std::net::IpAddr;
-use tokio_dns::IoFuture;
-// use log::info;
-use crate::dns::query;
 use native_tls::TlsConnector;
 use std::io;
 use std::time::Duration;
 use tokio::prelude::FutureExt;
 use url::Url;
 
-pub struct MyResolver<'a> {
-    dns_server: &'a str,
-}
-
-impl<'a> MyResolver<'_> {
-    pub fn new(dns_server: &str) -> MyResolver {
-        MyResolver { dns_server }
-    }
-}
-
-impl<'a> tokio_dns::Resolver for MyResolver<'_> {
-    fn resolve(&self, host: &str) -> IoFuture<Vec<IpAddr>> {
-        Box::new(ok(query(host, self.dns_server)))
-    }
-}
-
 #[derive(Debug)]
 pub struct HTTPRequest {
     url_parsed: Url,
     timeout: Duration,
-    dns_server: Option<String>,
 }
 
 #[derive(Debug)]
@@ -43,11 +22,7 @@ pub struct HTTPResponse {
 }
 
 impl HTTPRequest {
-    pub fn new(
-        url: &str,
-        timeout2: Option<Duration>,
-        dns_server: Option<String>,
-    ) -> Result<HTTPRequest, Error> {
+    pub fn new(url: &str, timeout2: Option<Duration>) -> Result<HTTPRequest, Error> {
         let urlparsed = Url::parse(url)?;
         let timeout;
         if timeout2.is_some() {
@@ -59,7 +34,6 @@ impl HTTPRequest {
         Ok(HTTPRequest {
             url_parsed: urlparsed,
             timeout,
-            dns_server,
         })
     }
 
@@ -84,13 +58,11 @@ impl HTTPRequest {
         }
 
         let head_str = self.to_http_header(content_size);
-        let fut;
-        if self.dns_server.is_some() {
-            let resolver = MyResolver::new(self.dns_server.as_ref().unwrap());
-            fut = tokio_dns::TcpStream::connect_with((host, port), resolver);
-        } else {
-            fut = tokio_dns::TcpStream::connect((host, port));
-        }
+        let fut = dns::MyDns::new(host.to_string());
+        let fut = fut.and_then(move |ipaddr| {
+            let addr = std::net::SocketAddr::new(ipaddr, port);
+            tokio_tcp::TcpStream::connect(&addr)
+        });
 
         let fut = fut.map_err(|e| e.into()).and_then(move |socket| {
             let vec;
@@ -142,13 +114,11 @@ impl HTTPRequest {
         let cx = tokio_tls::TlsConnector::from(cx);
         let host_str = host.to_string();
 
-        let fut;
-        if self.dns_server.is_some() {
-            let resolver = MyResolver::new(self.dns_server.as_ref().unwrap());
-            fut = tokio_dns::TcpStream::connect_with((host, port), resolver);
-        } else {
-            fut = tokio_dns::TcpStream::connect((host, port));
-        }
+        let fut = dns::MyDns::new(host.to_string());
+        let fut = fut.and_then(move |ipaddr| {
+            let addr = std::net::SocketAddr::new(ipaddr, port);
+            tokio_tcp::TcpStream::connect(&addr)
+        });
 
         let fut = fut.map_err(|e| e.into()).and_then(move |socket| {
             let tls_handshake = cx

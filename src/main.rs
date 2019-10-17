@@ -112,7 +112,10 @@ fn main() {
         }
     }
 
-    info!("try to start lproxy-cv server, ver:{}, uuid: {}", VERSION, uuid);
+    info!(
+        "try to start lproxy-cv server, ver:{}, uuid: {}",
+        VERSION, uuid
+    );
     let mut rt = Runtime::new().unwrap();
     // let handle = rt.handle();
 
