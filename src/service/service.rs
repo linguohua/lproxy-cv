@@ -12,7 +12,7 @@ const STATE_STOPPED: u8 = 0;
 const STATE_STARTING: u8 = 1;
 const STATE_RUNNING: u8 = 2;
 const STATE_STOPPING: u8 = 3;
-use super::SubServiceCtl;
+use super::{SubServiceCtl, SubServiceCtlCmd, SubServiceType};
 use std::cell::RefCell;
 use std::env;
 use std::path::{Path, PathBuf};
@@ -182,7 +182,9 @@ impl Service {
         let sclone = s.clone();
         let ar = config::AuthReq {
             uuid,
+            is_cfgmonitor: false,
             current_version: crate::VERSION.to_string(),
+            domains_ver: "".to_string(),
         };
 
         let arstr = ar.to_json_str();
@@ -259,10 +261,23 @@ impl Service {
             uuid = s.borrow().uuid.to_string();
         }
 
+        let domains_ver;
+        {
+            let rf = s.borrow();
+            if rf.tuncfg.is_some() {
+                let cfg = rf.tuncfg.as_ref().unwrap();
+                domains_ver = cfg.domains_ver.to_string();
+            } else {
+                domains_ver = "0.1.0".to_string();
+            }
+        }
+
         let httpserver = config::server_url();
         let ar = config::AuthReq {
             uuid,
+            is_cfgmonitor: true,
             current_version: crate::VERSION.to_string(),
+            domains_ver,
         };
 
         let arstr = ar.to_json_str();
@@ -276,6 +291,18 @@ impl Service {
 
                 if let Some(mut rsp) = Service::parse_auth_reply(&response) {
                     if rsp.error == 0 {
+                        if rsp.tuncfg.is_some() {
+                            let mut cfg = rsp.tuncfg.take().unwrap();
+                            let mut rf = sclone.borrow_mut();
+
+                            if cfg.domain_array.is_some() {
+                                let domains = cfg.domain_array.take().unwrap();
+                                rf.notify_forwarder_update_domains(domains);
+                            }
+
+                            rf.save_cfg(cfg);
+                        }
+
                         if rsp.need_upgrade && rsp.upgrade_url.len() > 0 {
                             // do upgrade
                             // download from upgrade_url, save to /a or /b directory
@@ -292,10 +319,8 @@ impl Service {
                                 let dir = dir.unwrap();
                                 rf.do_download(sclone2, dir.0, dir.1, &rsp.upgrade_url);
                             }
-                        } else if rsp.restart && rsp.tuncfg.is_some() {
-                            let cfg = rsp.tuncfg.take().unwrap();
-                            let mut rf = sclone.borrow_mut();
-                            rf.save_cfg(cfg);
+                        } else if rsp.restart {
+                            let rf = sclone.borrow();
                             rf.fire_instruction(Instruction::Restart);
                         }
                     }
@@ -310,6 +335,26 @@ impl Service {
             });
 
         current_thread::spawn(fut);
+    }
+
+    fn notify_forwarder_update_domains(&self, domains: Vec<String>) {
+        for ss in self.subservices.iter() {
+            match ss.sstype {
+                SubServiceType::Forwarder => {
+                    if ss.ctl_tx.is_some() {
+                        let cmd = SubServiceCtlCmd::DomainsUpdate(domains);
+                        match ss.ctl_tx.as_ref().unwrap().unbounded_send(cmd) {
+                            Err(e) => {
+                                error!("[Service] send update domains to forwarder failed:{}", e);
+                            }
+                            _ => {}
+                        }
+                        return;
+                    }
+                }
+                _ => {}
+            }
+        }
     }
 
     fn do_download(&mut self, s: LongLive, filepath: PathBuf, scriptpath: PathBuf, url: &str) {

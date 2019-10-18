@@ -5,7 +5,6 @@ pub struct TunCfg {
     pub tunnel_number: usize,
     pub websocket_url: String,
 
-    // pub local_tcp_port: u16,
     pub tunnel_req_cap: usize,
     pub relay_domain: String,
     pub relay_port: u16,
@@ -13,6 +12,7 @@ pub struct TunCfg {
     pub dns_tun_url: String,
     pub dns_tunnel_number: usize,
 
+    pub domains_ver: String,
     pub domain_array: Option<Vec<String>>,
     pub local_dns_server: String,
     pub request_quota: usize,
@@ -22,21 +22,22 @@ pub struct TunCfg {
 }
 
 pub fn server_url() -> String {
-    // "https://127.0.0.1:8000/auth".to_string()
-    "https://szlgh.netbooster.vip:8000/authrbNCD66xjS3YC41cLTbRRxDz7pKCv4ylHpJHTkXzkO5mCoEvqgSTEPqYfLuJO425"
-        .to_string()
+    "https://127.0.0.1:8000/auth".to_string()
 }
 
 pub struct AuthReq {
     pub uuid: String,
     pub current_version: String,
+    pub domains_ver: String,
+    pub is_cfgmonitor: bool,
 }
 
 impl AuthReq {
     pub fn to_json_str(&self) -> String {
         format!(
-            "{{\"uuid\":\"{}\",\"current_version\":\"{}\"}}",
-            self.uuid, self.current_version
+            "{{\"uuid\":\"{}\",\"is_cfgmonitor\":{},\
+             \"current_version\":\"{}\",\"domains_ver\":\"{}\"}}",
+            self.uuid, self.is_cfgmonitor, self.current_version, self.domains_ver
         )
     }
 }
@@ -117,10 +118,10 @@ impl AuthResp {
                 None => 12345,
             };
 
-            // let dns_udp_addr = match v_tuncfg["dns_udp_addr"].as_str() {
-            //     Some(t) => t.to_string(),
-            //     None => "127.0.0.1:5000".to_string(),
-            // };
+            let domains_ver = match v_tuncfg["domains_ver"].as_str() {
+                Some(t) => t.to_string(),
+                None => "0.1.0".to_string(),
+            };
 
             let dns_tun_url = match v_tuncfg["dns_tun_url"].as_str() {
                 Some(t) => t.to_string(),
@@ -136,11 +137,6 @@ impl AuthResp {
                 Some(t) => t as usize,
                 None => 1,
             };
-
-            // let local_tcp_port = match v_tuncfg["local_tcp_port"].as_u64() {
-            //     Some(t) => t as u16,
-            //     None => 5000,
-            // };
 
             let mut domain_array: Vec<String> = Vec::new();
             match v_tuncfg["domain_array"].as_array() {
@@ -158,12 +154,9 @@ impl AuthResp {
             let tc = TunCfg {
                 tunnel_number: tunnel_number,
                 websocket_url: websocket_url,
-                // local_server: local_server,
                 tunnel_req_cap: tunnel_req_cap,
                 relay_domain: relay_domain,
                 relay_port: relay_port,
-                // local_tcp_port,
-                // dns_udp_addr: dns_udp_addr,
                 dns_tun_url: dns_tun_url,
                 dns_tunnel_number: dns_tunnel_number,
                 domain_array: Some(domain_array),
@@ -171,6 +164,7 @@ impl AuthResp {
                 request_quota,
                 xport_url,
                 token: token.to_string(),
+                domains_ver,
             };
 
             tuncfg = Some(tc);

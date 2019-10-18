@@ -19,6 +19,14 @@ use tokio_tcp::TcpStream;
 pub enum SubServiceCtlCmd {
     Stop,
     TcpTunnel(TcpStream),
+    DomainsUpdate(Vec<String>),
+}
+
+pub enum SubServiceType {
+    Forwarder,
+    RegMgr,
+    TunMgr,
+    XTunnel,
 }
 
 impl fmt::Display for SubServiceCtlCmd {
@@ -27,6 +35,7 @@ impl fmt::Display for SubServiceCtlCmd {
         match self {
             SubServiceCtlCmd::Stop => s = "Stop",
             SubServiceCtlCmd::TcpTunnel(_) => s = "TcpTunnel",
+            SubServiceCtlCmd::DomainsUpdate(_) => s = "DomainUpdate",
         }
         write!(f, "({})", s)
     }
@@ -35,6 +44,7 @@ impl fmt::Display for SubServiceCtlCmd {
 pub struct SubServiceCtl {
     pub handler: Option<std::thread::JoinHandle<()>>,
     pub ctl_tx: Option<UnboundedSender<SubServiceCtlCmd>>,
+    pub sstype: SubServiceType,
 }
 
 pub struct TunMgrStub {
@@ -68,6 +78,10 @@ fn start_forwarder(
                         let f = forwarder.clone();
                         f.borrow_mut().stop();
                     }
+                    SubServiceCtlCmd::DomainsUpdate(domains) => {
+                        let f = forwarder.clone();
+                        f.borrow_mut().update_domains(domains);
+                    }
                     _ => {
                         error!("[SubService]forwarder unknown ctl cmd:{}", cmd);
                     }
@@ -88,6 +102,7 @@ fn start_forwarder(
     SubServiceCtl {
         handler: Some(handler),
         ctl_tx: Some(tx),
+        sstype: SubServiceType::Forwarder,
     }
 }
 
@@ -134,6 +149,7 @@ fn start_xtunnel(cfg: Arc<TunCfg>, r_tx: futures::Complete<bool>) -> SubServiceC
     SubServiceCtl {
         handler: Some(handler),
         ctl_tx: Some(tx),
+        sstype: SubServiceType::XTunnel,
     }
 }
 
@@ -186,6 +202,7 @@ fn start_reqmgr(
     SubServiceCtl {
         handler: Some(handler),
         ctl_tx: Some(tx),
+        sstype: SubServiceType::RegMgr,
     }
 }
 
@@ -218,9 +235,10 @@ fn start_one_tunmgr(
                     }
                     SubServiceCtlCmd::TcpTunnel(t) => {
                         tunnels::serve_sock(t, tunmgr.clone());
-                    } // _ => {
-                      //     error!("[SubService]tunmgr unknown ctl cmd:{}", cmd);
-                      // }
+                    }
+                    _ => {
+                        error!("[SubService]tunmgr unknown ctl cmd:{}", cmd);
+                    }
                 }
 
                 Ok(())
@@ -238,6 +256,7 @@ fn start_one_tunmgr(
     SubServiceCtl {
         handler: Some(handler),
         ctl_tx: Some(tx),
+        sstype: SubServiceType::TunMgr,
     }
 }
 

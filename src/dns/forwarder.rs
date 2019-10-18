@@ -80,6 +80,15 @@ impl Forwarder {
         }))
     }
 
+    pub fn update_domains(&mut self, domain_array: Vec<String>) {
+        let mut domap = DomainMap::new();
+        for it in domain_array.iter() {
+            domap.insert(&it);
+        }
+
+        self.domap = domap;
+    }
+
     pub fn init(&mut self, s: LongLife) -> Result<(), Error> {
         info!("[Forwarder]init");
         self.start_keepalive_timer(s.clone());
