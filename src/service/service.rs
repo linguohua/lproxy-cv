@@ -270,6 +270,8 @@ impl Service {
             } else {
                 domains_ver = "0.1.0".to_string();
             }
+
+            info!("[Service]do_cfg_monitor, domain ver:{}", domains_ver);
         }
 
         let httpserver = config::server_url();
@@ -297,7 +299,9 @@ impl Service {
 
                             if cfg.domain_array.is_some() {
                                 let domains = cfg.domain_array.take().unwrap();
-                                rf.notify_forwarder_update_domains(domains);
+                                if domains.len() > 0 {
+                                    rf.notify_forwarder_update_domains(domains);
+                                }
                             }
 
                             rf.save_cfg(cfg);
@@ -528,6 +532,8 @@ impl Service {
     }
 
     fn save_cfg(&mut self, cfg: config::TunCfg) {
+        info!("[Service]save_cfg, domain ver:{}", cfg.domains_ver);
+
         self.tuncfg = Some(std::sync::Arc::new(cfg));
     }
 

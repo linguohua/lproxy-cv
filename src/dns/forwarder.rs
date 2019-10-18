@@ -81,6 +81,10 @@ impl Forwarder {
     }
 
     pub fn update_domains(&mut self, domain_array: Vec<String>) {
+        info!(
+            "[Forwarder]update_domains, array len:{}",
+            domain_array.len()
+        );
         let mut domap = DomainMap::new();
         for it in domain_array.iter() {
             domap.insert(&it);
