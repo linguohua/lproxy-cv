@@ -172,6 +172,14 @@ impl HTTPRequest {
             method = "GET";
         }
 
+        let path = urlparsed.path().to_string();
+        let query = match urlparsed.query() {
+            Some(q) => format!("?{}", q),
+            None => "".to_string(),
+        };
+
+        let path = format!("{}{}", path, query);
+
         let h = format!(
             "\
              {} {} HTTP/1.0\r\n\
@@ -182,7 +190,7 @@ impl HTTPRequest {
              \r\n\
              ",
             method,
-            urlparsed.path(),
+            path,
             urlparsed.host().unwrap(),
             content_size,
         );

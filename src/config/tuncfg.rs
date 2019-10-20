@@ -44,7 +44,6 @@ impl AuthReq {
 }
 
 pub struct CfgMonitorReq {
-    pub token: String,
     pub current_version: String,
     pub domains_ver: String,
     pub arch: String,
@@ -53,9 +52,8 @@ pub struct CfgMonitorReq {
 impl CfgMonitorReq {
     pub fn to_json_str(&self) -> String {
         format!(
-            "{{\"token\":\"{}\",\
-             \"current_version\":\"{}\",\"domains_ver\":\"{}\",\"arch\":\"{}\"}}",
-            self.token, self.current_version, self.domains_ver, self.arch
+            "{{\"current_version\":\"{}\",\"domains_ver\":\"{}\",\"arch\":\"{}\"}}",
+            self.current_version, self.domains_ver, self.arch
         )
     }
 }
@@ -70,9 +68,14 @@ pub struct AuthResp {
 }
 
 impl AuthResp {
-    pub fn from_json_str(s: &str) -> AuthResp {
+    pub fn from_json_str(s: &str) -> Option<AuthResp> {
         use serde_json::Value;
-        let v: Value = serde_json::from_str(s).unwrap();
+        let vv = serde_json::from_str(s);
+        if vv.is_err() {
+            return None;
+        }
+
+        let v: Value = vv.unwrap();
         let mut token = "";
         if v["token"].is_string() {
             token = v["token"].as_str().unwrap();
@@ -123,7 +126,7 @@ impl AuthResp {
 
             let cfg_monitor_url = match v_tuncfg["cfg_monitor_url"].as_str() {
                 Some(t) => t.to_string(),
-                None => "".to_string(),
+                None => "https://localhost:8000/cfgmonitor".to_string(),
             };
 
             let tunnel_req_cap = match v_tuncfg["tunnel_req_cap"].as_u64() {
@@ -194,14 +197,14 @@ impl AuthResp {
             tuncfg = Some(tc);
         };
 
-        AuthResp {
+        Some(AuthResp {
             token: token.to_string(),
             restart: restart,
             tuncfg: tuncfg,
             need_upgrade,
             upgrade_url,
             error,
-        }
+        })
     }
 }
 

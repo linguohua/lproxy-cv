@@ -1,22 +1,24 @@
+use super::{SubServiceCtl, SubServiceCtlCmd, SubServiceType};
 use crate::config::{self, CFG_MONITOR_INTERVAL, LPROXY_SCRIPT};
 use crate::htp;
 use futures::sync::mpsc::UnboundedSender;
 use log::{debug, error, info};
+use std::cell::RefCell;
+use std::env;
 use std::fmt;
+use std::path::{Path, PathBuf};
+use std::rc::Rc;
 use std::time::{Duration, Instant};
 use stream_cancel::{StreamExt, Trigger, Tripwire};
 use tokio::prelude::*;
 use tokio::runtime::current_thread;
 use tokio::timer::{Delay, Interval};
+
+// state constants
 const STATE_STOPPED: u8 = 0;
 const STATE_STARTING: u8 = 1;
 const STATE_RUNNING: u8 = 2;
 const STATE_STOPPING: u8 = 3;
-use super::{SubServiceCtl, SubServiceCtlCmd, SubServiceType};
-use std::cell::RefCell;
-use std::env;
-use std::path::{Path, PathBuf};
-use std::rc::Rc;
 
 type LongLive = Rc<RefCell<Service>>;
 
@@ -149,10 +151,7 @@ impl Service {
 
         if let Some(ref body) = response.body {
             let s2 = String::from_utf8_lossy(body).to_string();
-            let aresp: config::AuthResp = config::AuthResp::from_json_str(&s2);
-            // info!("[Service]AuthResp:{:?}", aresp);
-
-            return Some(aresp);
+            return config::AuthResp::from_json_str(&s2);
         } else {
             return None;
         }
@@ -256,20 +255,18 @@ impl Service {
 
     fn do_cfg_monitor(s: LongLive) {
         info!("[Service]do_cfg_monitor");
-        let monitor_url;
-        {
-            monitor_url = s
-                .borrow()
-                .tuncfg
-                .as_ref()
-                .unwrap()
-                .cfg_monitor_url
-                .to_string();
-        }
-
         let token;
         {
             token = s.borrow().tuncfg.as_ref().unwrap().token.to_string();
+        }
+
+        let monitor_url;
+        {
+            monitor_url = format!(
+                "{}?tok={}",
+                s.borrow().tuncfg.as_ref().unwrap().cfg_monitor_url,
+                token
+            );
         }
 
         // no monitor url configured
@@ -292,8 +289,9 @@ impl Service {
 
         let arch = std::env::consts::ARCH.to_string();
         let httpserver = monitor_url;
+        // info!("[Service]do_cfg_monitor url:{}", httpserver);
+
         let ar = config::CfgMonitorReq {
-            token,
             current_version: crate::VERSION.to_string(),
             domains_ver,
             arch,
@@ -306,7 +304,7 @@ impl Service {
         let fut = req
             .exec(Some(arstr))
             .and_then(move |response| {
-                // debug!("[Service]do_cfg_monitor http response:{:?}", response);
+                // info!("[Service]do_cfg_monitor http response:{:?}", response);
 
                 if let Some(mut rsp) = Service::parse_auth_reply(&response) {
                     if rsp.error == 0 {
