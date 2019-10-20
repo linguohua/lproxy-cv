@@ -23,6 +23,7 @@ use tokio::runtime::current_thread::Runtime;
 pub const PIDFILE: &'static str = "/var/run/lproxy-cv.pid";
 pub const LOCKFILE: &'static str = "/var/run/lproxy-cv.lock";
 pub const VERSION: &'static str = env!("CARGO_PKG_VERSION");
+pub const ARCH: &'static str = std::env::consts::ARCH;
 
 fn to_version_number(ver: &str) -> usize {
     // split
@@ -113,8 +114,8 @@ fn main() {
     }
 
     info!(
-        "try to start lproxy-cv server, ver:{}, uuid: {}",
-        VERSION, uuid
+        "try to start lproxy-cv server, ver:{}, uuid: {}, arch:{}",
+        VERSION, uuid, ARCH
     );
     let mut rt = Runtime::new().unwrap();
     // let handle = rt.handle();

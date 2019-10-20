@@ -19,6 +19,8 @@ pub struct TunCfg {
 
     pub xport_url: String,
     pub token: String,
+
+    pub cfg_monitor_url: String,
 }
 
 pub fn server_url() -> String {
@@ -28,16 +30,32 @@ pub fn server_url() -> String {
 pub struct AuthReq {
     pub uuid: String,
     pub current_version: String,
-    pub domains_ver: String,
-    pub is_cfgmonitor: bool,
+    pub arch: String,
 }
 
 impl AuthReq {
     pub fn to_json_str(&self) -> String {
         format!(
-            "{{\"uuid\":\"{}\",\"is_cfgmonitor\":{},\
-             \"current_version\":\"{}\",\"domains_ver\":\"{}\"}}",
-            self.uuid, self.is_cfgmonitor, self.current_version, self.domains_ver
+            "{{\"uuid\":\"{}\",\
+             \"current_version\":\"{}\",\"arch\":\"{}\"}}",
+            self.uuid, self.current_version, self.arch
+        )
+    }
+}
+
+pub struct CfgMonitorReq {
+    pub token: String,
+    pub current_version: String,
+    pub domains_ver: String,
+    pub arch: String,
+}
+
+impl CfgMonitorReq {
+    pub fn to_json_str(&self) -> String {
+        format!(
+            "{{\"token\":\"{}\",\
+             \"current_version\":\"{}\",\"domains_ver\":\"{}\",\"arch\":\"{}\"}}",
+            self.token, self.current_version, self.domains_ver, self.arch
         )
     }
 }
@@ -103,6 +121,11 @@ impl AuthResp {
                 None => "https://localhost:8000/xportlws".to_string(),
             };
 
+            let cfg_monitor_url = match v_tuncfg["cfg_monitor_url"].as_str() {
+                Some(t) => t.to_string(),
+                None => "".to_string(),
+            };
+
             let tunnel_req_cap = match v_tuncfg["tunnel_req_cap"].as_u64() {
                 Some(t) => t as usize,
                 None => 100,
@@ -165,6 +188,7 @@ impl AuthResp {
                 xport_url,
                 token: token.to_string(),
                 domains_ver,
+                cfg_monitor_url,
             };
 
             tuncfg = Some(tc);

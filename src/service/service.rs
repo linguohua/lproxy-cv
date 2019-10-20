@@ -177,14 +177,14 @@ impl Service {
         }
 
         let httpserver = config::server_url();
+        let arch = std::env::consts::ARCH.to_string();
         let req = htp::HTTPRequest::new(&httpserver, Some(Duration::from_secs(10))).unwrap();
 
         let sclone = s.clone();
         let ar = config::AuthReq {
             uuid,
-            is_cfgmonitor: false,
             current_version: crate::VERSION.to_string(),
-            domains_ver: "".to_string(),
+            arch,
         };
 
         let arstr = ar.to_json_str();
@@ -256,9 +256,25 @@ impl Service {
 
     fn do_cfg_monitor(s: LongLive) {
         info!("[Service]do_cfg_monitor");
-        let uuid;
+        let monitor_url;
         {
-            uuid = s.borrow().uuid.to_string();
+            monitor_url = s
+                .borrow()
+                .tuncfg
+                .as_ref()
+                .unwrap()
+                .cfg_monitor_url
+                .to_string();
+        }
+
+        let token;
+        {
+            token = s.borrow().tuncfg.as_ref().unwrap().token.to_string();
+        }
+
+        // no monitor url configured
+        if monitor_url.len() < 1 || token.len() < 1 {
+            return;
         }
 
         let domains_ver;
@@ -274,12 +290,13 @@ impl Service {
             info!("[Service]do_cfg_monitor, domain ver:{}", domains_ver);
         }
 
-        let httpserver = config::server_url();
-        let ar = config::AuthReq {
-            uuid,
-            is_cfgmonitor: true,
+        let arch = std::env::consts::ARCH.to_string();
+        let httpserver = monitor_url;
+        let ar = config::CfgMonitorReq {
+            token,
             current_version: crate::VERSION.to_string(),
             domains_ver,
+            arch,
         };
 
         let arstr = ar.to_json_str();
