@@ -43,6 +43,7 @@ pub struct Forwarder {
     lresolver: Rc<RefCell<LocalResolver>>,
 
     nsock: NLSocket,
+    pub token: String,
 }
 
 impl Forwarder {
@@ -63,6 +64,7 @@ impl Forwarder {
 
         let local_addr = format!("{}:{}", LOCAL_SERVER, LOCAL_SERVER_PORT);
         let dns_server = UdpServer::new(&local_addr);
+        let token = cfg.token.to_string();
         Rc::new(RefCell::new(Forwarder {
             udp_addr: local_addr,
             dns_tun_url: cfg.dns_tun_url.to_string(),
@@ -77,6 +79,7 @@ impl Forwarder {
             domap,
             lresolver: LocalResolver::new(&cfg.local_dns_server),
             nsock: NLSocket::new(),
+            token,
         }))
     }
 
