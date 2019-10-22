@@ -1,13 +1,13 @@
 use super::dnspacket::{BytePacketBuffer, DnsPacket, DnsRecord};
 use super::dnstunbuilder;
 use super::domap::DomainMap;
-use super::netlink::{construct_ipset_packet, NLSocket};
+use super::netlink::{self, construct_iphash_packet, construct_v4nethash_packet, NLSocket};
 use super::DnsTunnel;
 use super::LocalResolver;
 use super::UdpServer;
 use crate::config::{
-    TunCfg, IPSET_TABLE6_NULL, IPSET_TABLE_NULL, KEEP_ALIVE_INTERVAL, LOCAL_SERVER,
-    LOCAL_SERVER_PORT,
+    TunCfg, IPSET_NETHASH_TABLE_NULL, IPSET_TABLE6_NULL, IPSET_TABLE_NULL, KEEP_ALIVE_INTERVAL,
+    LOCAL_SERVER, LOCAL_SERVER_PORT,
 };
 use failure::Error;
 use log::{debug, error, info};
@@ -55,10 +55,8 @@ impl Forwarder {
             vec.push(None);
         }
 
-        let mut domap = DomainMap::new();
-        for it in domain_array.iter() {
-            domap.insert(&it);
-        }
+        let nsock = NLSocket::new();
+        let domap = Forwarder::new_domap(&nsock, &domain_array);
 
         info!("[Forwarder]insert {} domain into domap", domain_array.len());
 
@@ -78,7 +76,7 @@ impl Forwarder {
             keepalive_trigger: None,
             domap,
             lresolver: LocalResolver::new(&cfg.local_dns_server),
-            nsock: NLSocket::new(),
+            nsock,
             token,
         }))
     }
@@ -88,12 +86,31 @@ impl Forwarder {
             "[Forwarder]update_domains, array len:{}",
             domain_array.len()
         );
+
+        let domap = Forwarder::new_domap(&self.nsock, &domain_array);
+        self.domap = domap;
+    }
+
+    fn new_domap(nsock: &NLSocket, domain_array: &[String]) -> DomainMap {
         let mut domap = DomainMap::new();
         for it in domain_array.iter() {
-            domap.insert(&it);
+            match netlink::ipv4range_parse(&it) {
+                Ok(ir) => {
+                    if ir.mask < 32 {
+                        let ipv4 = ir.addr.octets();
+                        Forwarder::ipset_add_nethash(nsock, &ipv4[..], ir.mask);
+                    } else {
+                        let ipv4 = ir.addr.octets();
+                        Forwarder::ipset_add_iphash(nsock, &ipv4[..], IPSET_TABLE_NULL);
+                    }
+                }
+                Err(_) => {
+                    domap.insert(&it);
+                }
+            }
         }
 
-        self.domap = domap;
+        domap
     }
 
     pub fn init(&mut self, s: LongLife) -> Result<(), Error> {
@@ -344,14 +361,7 @@ impl Forwarder {
                 } => {
                     info!("[Forwarder] try to save ipv4 into ipset:{}", addr);
                     let ipv4 = addr.octets();
-                    let mut vec = vec![0 as u8; 256];
-                    let len = construct_ipset_packet(IPSET_TABLE_NULL, &ipv4[..], &mut vec);
-                    match self.nsock.send_to(&vec[..len as usize], 0) {
-                        Err(e) => {
-                            error!("[Forwarder] save ipset failed:{}", e);
-                        }
-                        _ => {}
-                    }
+                    Forwarder::ipset_add_iphash(&self.nsock, &ipv4[..], IPSET_TABLE_NULL);
                 }
                 DnsRecord::AAAA {
                     domain: _,
@@ -360,17 +370,32 @@ impl Forwarder {
                 } => {
                     let ipv6 = addr.octets();
                     info!("[Forwarder] try to save ipv6 into ipset:{}", addr);
-                    let mut vec = vec![0 as u8; 256];
-                    let len = construct_ipset_packet(IPSET_TABLE6_NULL, &ipv6[..], &mut vec);
-                    match self.nsock.send_to(&vec[..len as usize], 0) {
-                        Err(e) => {
-                            error!("[Forwarder] save ipset failed:{}", e);
-                        }
-                        _ => {}
-                    }
+                    Forwarder::ipset_add_iphash(&self.nsock, &ipv6[..], IPSET_TABLE6_NULL);
                 }
                 _ => {}
             }
+        }
+    }
+
+    fn ipset_add_iphash(sock: &NLSocket, ipvec: &[u8], tbname: &str) {
+        let mut vec = vec![0 as u8; 256];
+        let len = construct_iphash_packet(tbname, ipvec, &mut vec);
+        match sock.send_to(&vec[..len as usize], 0) {
+            Err(e) => {
+                error!("[Forwarder] save ipset failed:{}", e);
+            }
+            _ => {}
+        }
+    }
+
+    fn ipset_add_nethash(sock: &NLSocket, ipvec: &[u8], mask: u8) {
+        let mut vec = vec![0 as u8; 256];
+        let len = construct_v4nethash_packet(IPSET_NETHASH_TABLE_NULL, ipvec, mask, &mut vec);
+        match sock.send_to(&vec[..len as usize], 0) {
+            Err(e) => {
+                error!("[Forwarder] save ipset failed:{}", e);
+            }
+            _ => {}
         }
     }
 

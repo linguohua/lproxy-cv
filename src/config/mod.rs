@@ -3,6 +3,9 @@ pub use tuncfg::*;
 mod logsimple;
 pub use logsimple::*;
 
+pub const IPSET_NETHASH_TABLE_NULL: &str = "LPROXYN\0";
+pub const IPSET_NETHASH_TABLE: &str = "LPROXYN";
+
 pub const IPSET_TABLE_NULL: &str = "LPROXY\0";
 pub const IPSET_TABLE6_NULL: &str = "LPROXY6\0";
 pub const IPSET_TABLE: &str = "LPROXY";

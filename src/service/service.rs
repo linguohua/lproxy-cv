@@ -508,6 +508,9 @@ impl Service {
             }
         }
 
+        // we need to create ipset first, otherwise Forwarder can't insert ip to set
+        super::ipset::set_ipset();
+
         let clone = s.clone();
         let clone2 = s.clone();
         let fut = super::start_subservice(cfg, domains)
@@ -586,6 +589,7 @@ impl Service {
         info!("[Service]restore_sys");
         super::iptable_rule::unset_iptables_rules();
         super::ip_rules::unset_ip_rules();
+        super::ipset::unset_ipset();
 
         // replace uci dnsmasq forward server to default
         super::set_uci_dnsmasq_to_default();

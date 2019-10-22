@@ -1,13 +1,13 @@
 use super::ip_rules::do_bash_cmd;
-use super::ipset;
+// use super::ipset;
 
 pub fn set_iptables_rules() {
     unset_iptables_rules();
-    ipset::set_ipset();
 
     let args =
         "iptables -t mangle -N LPROXY_TCP;\
             iptables -t mangle -A LPROXY_TCP -p tcp -j TPROXY --on-port 5000 --on-ip 127.0.0.1 --tproxy-mark 0x01/0x01;\
+            iptables -t mangle -I PREROUTING -p tcp -m set --match-set LPROXYN dst -j LPROXY_TCP;\
             iptables -t mangle -I PREROUTING -p tcp -m set --match-set LPROXY dst -j LPROXY_TCP;\
             ip6tables -t mangle -N LPROXY_TCP;\
             ip6tables -t mangle -A LPROXY_TCP -p tcp -j TPROXY --on-port 5000 --on-ip ::1 --tproxy-mark 0x01/0x01;\
@@ -27,6 +27,7 @@ pub fn set_iptables_rules() {
 pub fn unset_iptables_rules() {
     let args =
         "iptables -t mangle -D PREROUTING -p tcp -m set --match-set LPROXY dst -j LPROXY_TCP;\
+         iptables -t mangle -D PREROUTING -p tcp -m set --match-set LPROXYN dst -j LPROXY_TCP;\
          ip6tables -t mangle -D PREROUTING -p tcp -m set --match-set LPROXY6 dst -j LPROXY_TCP;\
          iptables -t mangle -F LPROXY_TCP;\
          iptables -t mangle -X LPROXY_TCP;\
@@ -41,5 +42,5 @@ pub fn unset_iptables_rules() {
         Err(_) => {}
     }
 
-    ipset::unset_ipset();
+    // ipset::unset_ipset();
 }
