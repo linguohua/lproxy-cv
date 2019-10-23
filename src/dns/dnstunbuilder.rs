@@ -18,7 +18,7 @@ pub fn connect(fw: &Forwarder, mgr2: Rc<RefCell<Forwarder>>, index: usize, udp_t
     let relay_port = fw.relay_port;
     let ws_url = &fw.dns_tun_url;
     let token = &fw.token;
-    let ws_url = format!("{}?tok={}", ws_url, token);
+    let ws_url = format!("{}?dns=1&tok={}", ws_url, token);
     let url = url::Url::parse(&ws_url).unwrap();
 
     let mgr1 = mgr2.clone();

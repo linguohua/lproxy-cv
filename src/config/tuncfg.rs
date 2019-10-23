@@ -3,13 +3,10 @@ use std::fmt;
 #[derive(Debug)]
 pub struct TunCfg {
     pub tunnel_number: usize,
-    pub websocket_url: String,
-
+    pub tunnel_url: String,
     pub tunnel_req_cap: usize,
     pub relay_domain: String,
     pub relay_port: u16,
-
-    pub dns_tun_url: String,
     pub dns_tunnel_number: usize,
 
     pub domains_ver: String,
@@ -114,7 +111,7 @@ impl AuthResp {
                 None => 10,
             };
 
-            let websocket_url = match v_tuncfg["websocket_url"].as_str() {
+            let tunnel_url = match v_tuncfg["tunnel_url"].as_str() {
                 Some(t) => t.to_string(),
                 None => "wss://127.0.0.1/tun".to_string(),
             };
@@ -149,11 +146,6 @@ impl AuthResp {
                 None => "0.1.0".to_string(),
             };
 
-            let dns_tun_url = match v_tuncfg["dns_tun_url"].as_str() {
-                Some(t) => t.to_string(),
-                None => "wss://127.0.0.1/dns".to_string(),
-            };
-
             let local_dns_server = match v_tuncfg["local_dns_server"].as_str() {
                 Some(t) => t.to_string(),
                 None => "223.5.5.5:53".to_string(),
@@ -179,11 +171,10 @@ impl AuthResp {
 
             let tc = TunCfg {
                 tunnel_number: tunnel_number,
-                websocket_url: websocket_url,
+                tunnel_url,
                 tunnel_req_cap: tunnel_req_cap,
                 relay_domain: relay_domain,
                 relay_port: relay_port,
-                dns_tun_url: dns_tun_url,
                 dns_tunnel_number: dns_tunnel_number,
                 domain_array: Some(domain_array),
                 local_dns_server,

@@ -65,7 +65,7 @@ impl Forwarder {
         let token = cfg.token.to_string();
         Rc::new(RefCell::new(Forwarder {
             udp_addr: local_addr,
-            dns_tun_url: cfg.dns_tun_url.to_string(),
+            dns_tun_url: cfg.tunnel_url.to_string(),
             relay_domain: cfg.relay_domain.to_string(),
             relay_port: cfg.relay_port,
             tunnels: vec,

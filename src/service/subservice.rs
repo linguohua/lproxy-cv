@@ -285,7 +285,10 @@ fn start_tunmgr(cfg: std::sync::Arc<TunCfg>) -> impl Future<Item = SubsctlVec, E
     let subservices = Rc::new(RefCell::new(Vec::new()));
     let subservices2 = subservices.clone();
     let subservices3 = subservices.clone();
-    let tunnels_per_mgr = cfg.tunnel_number / cpus;
+    let mut tunnels_per_mgr = cfg.tunnel_number / cpus;
+    if tunnels_per_mgr < 1 {
+        tunnels_per_mgr = 1;
+    }
 
     let fut = stream
         .for_each(move |_| {

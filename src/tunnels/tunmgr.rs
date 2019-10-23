@@ -47,7 +47,7 @@ impl TunMgr {
 
         let token = cfg.token.to_string();
         Rc::new(RefCell::new(TunMgr {
-            url: cfg.websocket_url.to_string(),
+            url: cfg.tunnel_url.to_string(),
             capacity: capacity,
             tunnel_req_cap: cfg.tunnel_req_cap,
             tunnels: vec,
@@ -77,7 +77,7 @@ impl TunMgr {
     }
 
     pub fn update_tuncfg(&mut self, cfg: &TunCfg) {
-        self.url = cfg.websocket_url.to_string();
+        self.url = cfg.tunnel_url.to_string();
         self.relay_domain = cfg.relay_domain.to_string();
         self.relay_port = cfg.relay_port;
         self.request_quota = cfg.request_quota as u16;
