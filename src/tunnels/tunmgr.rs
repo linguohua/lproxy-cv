@@ -76,6 +76,13 @@ impl TunMgr {
         Ok(())
     }
 
+    pub fn update_tuncfg(&mut self, cfg: &TunCfg) {
+        self.url = cfg.websocket_url.to_string();
+        self.relay_domain = cfg.relay_domain.to_string();
+        self.relay_port = cfg.relay_port;
+        self.request_quota = cfg.request_quota as u16;
+    }
+
     pub fn on_tunnel_created(&mut self, tun: Rc<RefCell<Tunnel>>) -> std::result::Result<(), ()> {
         info!("[TunMgr]on_tunnel_created");
         if self.discarded != false {

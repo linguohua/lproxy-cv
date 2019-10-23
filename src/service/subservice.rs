@@ -20,6 +20,7 @@ pub enum SubServiceCtlCmd {
     Stop,
     TcpTunnel(TcpStream),
     DomainsUpdate(Vec<String>),
+    TunCfgUpdate(Arc<TunCfg>),
 }
 
 pub enum SubServiceType {
@@ -36,6 +37,7 @@ impl fmt::Display for SubServiceCtlCmd {
             SubServiceCtlCmd::Stop => s = "Stop",
             SubServiceCtlCmd::TcpTunnel(_) => s = "TcpTunnel",
             SubServiceCtlCmd::DomainsUpdate(_) => s = "DomainUpdate",
+            SubServiceCtlCmd::TunCfgUpdate(_) => s = "TunCfgUpdate",
         }
         write!(f, "({})", s)
     }
@@ -235,6 +237,10 @@ fn start_one_tunmgr(
                     }
                     SubServiceCtlCmd::TcpTunnel(t) => {
                         tunnels::serve_sock(t, tunmgr.clone());
+                    }
+                    SubServiceCtlCmd::TunCfgUpdate(tuncfg) => {
+                        let f = tunmgr.clone();
+                        f.borrow_mut().update_tuncfg(&tuncfg);
                     }
                     _ => {
                         error!("[SubService]tunmgr unknown ctl cmd:{}", cmd);

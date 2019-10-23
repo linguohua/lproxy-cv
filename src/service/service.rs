@@ -329,6 +329,7 @@ impl Service {
                             }
 
                             rf.save_cfg(cfg);
+                            rf.notify_subservice_update_cfg();
                         }
 
                         if rsp.need_upgrade && rsp.upgrade_url.len() > 0 {
@@ -378,6 +379,26 @@ impl Service {
                             _ => {}
                         }
                         return;
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn notify_subservice_update_cfg(&self) {
+        let tuncfg = self.tuncfg.as_ref().unwrap().clone();
+        for ss in self.subservices.iter() {
+            match ss.sstype {
+                SubServiceType::TunMgr => {
+                    if ss.ctl_tx.is_some() {
+                        let cmd = SubServiceCtlCmd::TunCfgUpdate(tuncfg.clone());
+                        match ss.ctl_tx.as_ref().unwrap().unbounded_send(cmd) {
+                            Err(e) => {
+                                error!("[Service] send update domains to forwarder failed:{}", e);
+                            }
+                            _ => {}
+                        }
                     }
                 }
                 _ => {}
