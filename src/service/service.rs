@@ -298,8 +298,17 @@ impl Service {
         };
 
         let arstr = ar.to_json_str();
-        let req = htp::HTTPRequest::new(&httpserver, Some(Duration::from_secs(10))).unwrap();
+        let req = htp::HTTPRequest::new(&httpserver, Some(Duration::from_secs(10)));
+        if req.is_err() {
+            error!(
+                "[Service]do_cfg_monitor construct req failed:{}",
+                req.err().unwrap()
+            );
 
+            return;
+        }
+
+        let req = req.unwrap();
         let sclone = s.clone();
         let fut = req
             .exec(Some(arstr))
@@ -385,7 +394,18 @@ impl Service {
         self.is_upgrading = true;
         let sclone = s.clone();
 
-        let req = htp::HTTPRequest::new(url, Some(Duration::from_secs(60))).unwrap();
+        let req = htp::HTTPRequest::new(url, Some(Duration::from_secs(60)));
+        if req.is_err() {
+            error!(
+                "[Service]do_download construct req failed:{}",
+                req.err().unwrap()
+            );
+
+            self.is_upgrading = false;
+            return;
+        }
+
+        let req = req.unwrap();
         let fut = req
             .exec(None)
             .and_then(move |response| {

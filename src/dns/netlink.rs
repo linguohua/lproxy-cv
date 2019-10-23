@@ -253,6 +253,7 @@ pub fn construct_v4nethash_packet(setname: &str, ipvec: &[u8], mask: u8, out: &m
     attr6.write_to(&mut out[writen as usize..]);
     writen += align4(4);
 
+    // write mask
     let maskb = &mut out[writen as usize..];
     maskb[0] = mask;
 
@@ -302,6 +303,7 @@ impl NLSocket {
         //     println!("non block error:{}", Error::last_os_error());
         // }
 
+        // -- local host, so just let it be block mode --
         Ok(sock)
     }
 
@@ -343,6 +345,7 @@ impl fmt::Display for IPV4range {
     }
 }
 
+/// parse cidr address to struct, raw ip will be ip/32
 pub fn ipv4range_parse(ipstr: &str) -> Result<IPV4range> {
     let splits = ipstr.split("/");
     let vec: Vec<&str> = splits.collect();
