@@ -248,8 +248,9 @@ impl Forwarder {
         error!("[Forwarder]on_dns_udp_closed")
     }
 
-    pub fn on_lresolver_udp_closed(&self) {
-        error!("[Forwarder]on_lresolver_udp_closed")
+    pub fn on_lresolver_udp_closed(&mut self) {
+        error!("[Forwarder]on_lresolver_udp_closed");
+        self.lresolver.borrow_mut().invalid_tx();
     }
 
     pub fn on_resolver_udp_msg(
@@ -339,7 +340,7 @@ impl Forwarder {
                     let bm = bytes::Bytes::from(message);
                     self.lresolver
                         .borrow_mut()
-                        .request(&q.name, p.header.id, bm, src_addr);
+                        .request(self, &q.name, p.header.id, bm, src_addr);
                 }
             }
 
@@ -501,7 +502,7 @@ impl Forwarder {
             .then(|_| {
                 info!("[Forwarder] keepalive timer future completed");
                 Ok(())
-            });;
+            });
 
         current_thread::spawn(task);
     }

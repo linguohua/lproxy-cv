@@ -657,7 +657,7 @@ impl Service {
             .then(|_| {
                 info!("[Service] monitor timer future completed");
                 Ok(())
-            });;
+            });
 
         current_thread::spawn(task);
     }

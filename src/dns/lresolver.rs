@@ -21,6 +21,7 @@ pub struct LocalResolver {
     request_memo_history: HashMap<String, SocketAddr>,
     request_memo: HashMap<String, SocketAddr>,
     dns_server_addr: SocketAddr,
+    fw: Option<Rc<RefCell<Forwarder>>>,
 }
 
 impl LocalResolver {
@@ -32,6 +33,7 @@ impl LocalResolver {
             request_memo: HashMap::default(),
             request_memo_history: HashMap::default(),
             dns_server_addr,
+            fw: None,
         }))
     }
 
@@ -47,6 +49,7 @@ impl LocalResolver {
         let (tx, rx) = futures::sync::mpsc::unbounded();
         let (trigger, tripwire) = Tripwire::new();
 
+        self.fw = Some(forward.clone());
         self.set_tx(tx, trigger);
         fw.on_lresolver_udp_created(self, forward);
 
@@ -74,7 +77,7 @@ impl LocalResolver {
             .select(send_fut.map(|_| ()).map_err(|_| ()))
             .then(move |_| {
                 info!("[LocalResolver] udp both future completed");
-                let rf = forwarder2.borrow();
+                let mut rf = forwarder2.borrow_mut();
                 rf.on_lresolver_udp_closed();
 
                 Ok(())
@@ -85,8 +88,17 @@ impl LocalResolver {
         Ok(())
     }
 
+    fn try_rebuild(&mut self, fw: &Forwarder) -> Result<(), Error> {
+        let rf = self.fw.take().unwrap();
+        self.start(fw, rf)
+    }
+
     fn set_tx(&mut self, tx2: TxType, trigger: Trigger) {
         self.tx = (Some(tx2), Some(trigger));
+    }
+
+    pub fn invalid_tx(&mut self) {
+        self.tx = (None, None);
     }
 
     pub fn get_tx(&self) -> Option<TxType> {
@@ -100,6 +112,7 @@ impl LocalResolver {
 
     pub fn stop(&mut self) {
         self.tx = (None, None);
+        self.fw = None;
     }
 
     pub fn take(&mut self, qname: &str, identify: u16) -> Option<SocketAddr> {
@@ -120,7 +133,31 @@ impl LocalResolver {
         self.request_memo.clear();
     }
 
-    pub fn request(&mut self, qname: &str, identify: u16, bm: bytes::Bytes, src_addr: SocketAddr) {
+    pub fn request(
+        &mut self,
+        fw: &Forwarder,
+        qname: &str,
+        identify: u16,
+        bm: bytes::Bytes,
+        src_addr: SocketAddr,
+    ) {
+        // check tx is valid or not
+        if self.get_tx().is_none() {
+            if self.fw.is_none() {
+                error!("[LocalResolver]request failed, try_rebuild error, fw is none");
+                return;
+            }
+
+            // need rebuild upd client
+            match self.try_rebuild(fw) {
+                Err(err) => {
+                    error!("[LocalResolver]request failed, try_rebuild error:{}", err);
+                    return;
+                }
+                _ => {}
+            }
+        }
+
         match self.get_tx() {
             Some(tx) => {
                 let key = format!("{}:{}", qname, identify);
@@ -131,7 +168,7 @@ impl LocalResolver {
                 self.request_memo.insert(key, src_addr);
                 match tx.unbounded_send((bm, self.dns_server_addr)) {
                     Err(e) => {
-                        error!("[Forwarder]unbounded_senderror:{}", e);
+                        error!("[LocalResolver]unbounded_senderror:{}", e);
                     }
                     _ => {}
                 }

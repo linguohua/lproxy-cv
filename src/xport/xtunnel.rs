@@ -90,7 +90,7 @@ impl XTunnel {
             return Err(failure::err_msg("XTunnel has discarded"));
         }
 
-        self.rawfd = Some(rawfd);;
+        self.rawfd = Some(rawfd);
         self.tun_tx = Some(tx);
 
         Ok(())
@@ -173,7 +173,7 @@ impl XTunnel {
             .then(|_| {
                 info!("[XPort] keepalive timer future completed");
                 Ok(())
-            });;
+            });
 
         current_thread::spawn(task);
     }
