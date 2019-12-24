@@ -102,7 +102,7 @@ impl UdpServer {
         match self.get_tx() {
             Some(tx) => match tx.unbounded_send((bm, sa)) {
                 Err(e) => {
-                    error!("[Forwarder]unbounded_senderror:{}", e);
+                    error!("[UdpServer]unbounded_send error:{}", e);
                 }
                 _ => {}
             },

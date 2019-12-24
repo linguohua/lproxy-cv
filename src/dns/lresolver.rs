@@ -168,7 +168,7 @@ impl LocalResolver {
                 self.request_memo.insert(key, src_addr);
                 match tx.unbounded_send((bm, self.dns_server_addr)) {
                     Err(e) => {
-                        error!("[LocalResolver]unbounded_senderror:{}", e);
+                        error!("[LocalResolver]unbounded_send error:{}", e);
                     }
                     _ => {}
                 }
