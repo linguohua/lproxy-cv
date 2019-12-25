@@ -59,7 +59,7 @@ impl From<u8> for Cmd {
             7 => Cmd::ReqClientQuota,
             8 => Cmd::Ping,
             9 => Cmd::Pong,
-            _ => panic!("unsupport {} to Cmd", v),
+            _ => panic!("[Cmd] unsupport {} to Cmd", v),
         }
     }
 }

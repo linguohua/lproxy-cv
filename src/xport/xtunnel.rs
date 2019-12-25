@@ -36,7 +36,7 @@ pub struct XTunnel {
 
 impl XTunnel {
     pub fn new(cfg: &TunCfg) -> LongLive {
-        info!("[XPort]new XTunnel");
+        info!("[XTunnel]new XTunnel");
         let req_cap = 128;
         let url = &cfg.xport_url;
         let tok = &cfg.token;
@@ -58,7 +58,7 @@ impl XTunnel {
     }
 
     pub fn start(&mut self, s: LongLive) -> std::result::Result<(), Error> {
-        info!("[XPort]start XTunnel");
+        info!("[XTunnel]start XTunnel");
 
         xtunel_connect(self, s.clone());
         self.start_keepalive_timer(s);
@@ -67,9 +67,9 @@ impl XTunnel {
     }
 
     pub fn stop(&mut self) {
-        info!("[XPort]stop XTunnel");
+        info!("[XTunnel]stop XTunnel");
         if self.discarded {
-            error!("[XPort]stop, XTunnel is already discarded");
+            error!("[XTunnel]stop, XTunnel is already discarded");
 
             return;
         }
@@ -83,9 +83,9 @@ impl XTunnel {
         rawfd: RawFd,
         tx: UnboundedSender<WMessage>,
     ) -> std::result::Result<(), Error> {
-        info!("[XPort]on_tunnel_created");
+        info!("[XTunnel]on_tunnel_created");
         if self.discarded != false {
-            error!("[XPort]on_tunnel_created, tunmgr is discarded, tun will be discarded");
+            error!("[XTunnel]on_tunnel_created, tunmgr is discarded, tun will be discarded");
 
             return Err(failure::err_msg("XTunnel has discarded"));
         }
@@ -97,19 +97,19 @@ impl XTunnel {
     }
 
     pub fn on_tunnel_closed(&mut self) {
-        info!("[XPort]on_tunnel_closed");
+        info!("[XTunnel]on_tunnel_closed");
         self.rawfd = None;
         let t = self.tun_tx.take();
 
         if t.is_some() {
             if self.discarded {
-                info!("[XPort]on_tunnel_closed, XTunnel is discarded, tun will be discard");
+                info!("[XTunnel]on_tunnel_closed, XTunnel is discarded, tun will be discard");
                 return;
             } else {
                 self.need_reconnect = true;
             }
 
-            info!("[XPort]xtunnel closed, reconnect later");
+            info!("[XTunnel]xtunnel closed, reconnect later");
         }
 
         let reqs = &mut self.requests;
@@ -117,16 +117,18 @@ impl XTunnel {
     }
 
     pub fn on_tunnel_build_error(&mut self) {
-        info!("[XPort]on_tunnel_build_error");
+        info!("[XTunnel]on_tunnel_build_error");
         if self.discarded != false {
-            error!("[XPort]on_tunnel_build_error, XTunnel is discarded, tun will be not reconnect");
+            error!(
+                "[XTunnel]on_tunnel_build_error, XTunnel is discarded, tun will be not reconnect"
+            );
 
             return;
         }
 
         self.need_reconnect = true;
 
-        info!("[XPort]tunnel build error, rebuild later");
+        info!("[XTunnel]tunnel build error, rebuild later");
     }
 
     fn save_keepalive_trigger(&mut self, trigger: Trigger) {
@@ -135,7 +137,7 @@ impl XTunnel {
 
     fn keepalive(&mut self, s: LongLive) {
         if self.discarded != false {
-            error!("[XPort]keepalive, XTunnel is discarded, not do keepalive");
+            error!("[XTunnel]keepalive, XTunnel is discarded, not do keepalive");
 
             return;
         }
@@ -153,7 +155,7 @@ impl XTunnel {
     }
 
     fn start_keepalive_timer(&mut self, s2: LongLive) {
-        info!("[XPort]start_keepalive_timer");
+        info!("[XTunnel]start_keepalive_timer");
         let (trigger, tripwire) = Tripwire::new();
         self.save_keepalive_trigger(trigger);
 
@@ -162,16 +164,21 @@ impl XTunnel {
             .skip(1)
             .take_until(tripwire)
             .for_each(move |instant| {
-                debug!("[XPort]keepalive timer fire; instant={:?}", instant);
+                debug!("[XTunnel]keepalive timer fire; instant={:?}", instant);
 
                 let mut rf = s2.borrow_mut();
                 rf.keepalive(s2.clone());
 
                 Ok(())
             })
-            .map_err(|e| error!("[XPort]start_keepalive_timer interval errored; err={:?}", e))
+            .map_err(|e| {
+                error!(
+                    "[XTunnel]start_keepalive_timer interval errored; err={:?}",
+                    e
+                )
+            })
             .then(|_| {
-                info!("[XPort] keepalive timer future completed");
+                info!("[XTunnel] keepalive timer future completed");
                 Ok(())
             });
 
@@ -182,7 +189,7 @@ impl XTunnel {
         let ping_count = self.ping_count;
         if ping_count > 5 {
             // exceed max ping count
-            info!("[XPort] ping exceed max, close rawfd");
+            info!("[XTunnel] ping exceed max, close rawfd");
             self.close_rawfd();
 
             return;
@@ -204,7 +211,7 @@ impl XTunnel {
         let r = self.tun_tx.as_ref().unwrap().unbounded_send(msg);
         match r {
             Err(e) => {
-                error!("[XPort] tunnel send_ping error:{}", e);
+                error!("[XTunnel] tunnel send_ping error:{}", e);
             }
             _ => {
                 self.ping_count += 1;
@@ -213,7 +220,7 @@ impl XTunnel {
     }
 
     fn close_rawfd(&mut self) {
-        info!("[XPort]close_rawfd");
+        info!("[XTunnel]close_rawfd");
         if self.rawfd.is_none() {
             return;
         }
@@ -221,7 +228,7 @@ impl XTunnel {
         let r = shutdown(self.rawfd.take().unwrap(), Shutdown::Both);
         match r {
             Err(e) => {
-                info!("[XPort]close_rawfd failed:{}", e);
+                info!("[XTunnel]close_rawfd failed:{}", e);
             }
             _ => {}
         }
@@ -233,7 +240,7 @@ impl XTunnel {
     }
 
     pub fn on_tunnel_msg(&mut self, msg: RMessage, ll: LongLive) {
-        // info!("[XPort]on_tunnel_msg");
+        // info!("[XTunnel]on_tunnel_msg");
         let bs = msg.buf.as_ref().unwrap();
         let bs = &bs[2..]; // skip the length
 
@@ -270,19 +277,19 @@ impl XTunnel {
                 let tx = self.get_request_tx(req_idx, req_tag);
                 match tx {
                     None => {
-                        info!("[XPort]no request found for: {}:{}", req_idx, req_tag);
+                        info!("[XTunnel]no request found for: {}:{}", req_idx, req_tag);
                         return;
                     }
                     Some(tx) => {
                         // info!(
-                        //     "[XPort]{} proxy request msg, {}:{}",
+                        //     "[XTunnel]{} proxy request msg, {}:{}",
                         //     self.tunnel_id, req_idx, req_tag
                         // );
                         let wmsg = WMessage::new(vec, (3 + THEADER_SIZE) as u16);
                         let result = tx.unbounded_send(wmsg);
                         match result {
                             Err(e) => {
-                                info!("[XPort]tunnel msg send to request failed:{}", e);
+                                info!("[XTunnel]tunnel msg send to request failed:{}", e);
                                 return;
                             }
                             _ => {}
@@ -294,7 +301,10 @@ impl XTunnel {
                 // client finished
                 let req_idx = th.req_idx;
                 let req_tag = th.req_tag;
-                info!("[XPort]ReqClientFinished, idx:{}, tag:{}", req_idx, req_tag);
+                info!(
+                    "[XTunnel]ReqClientFinished, idx:{}, tag:{}",
+                    req_idx, req_tag
+                );
 
                 self.free_request_tx(req_idx, req_tag);
             }
@@ -302,7 +312,7 @@ impl XTunnel {
                 // client closed
                 let req_idx = th.req_idx;
                 let req_tag = th.req_tag;
-                info!("[XPort]ReqClientClosed, idx:{}, tag:{}", req_idx, req_tag);
+                info!("[XTunnel]ReqClientClosed, idx:{}, tag:{}", req_idx, req_tag);
 
                 let reqs = &mut self.requests;
                 let r = reqs.free(req_idx, req_tag);
@@ -325,7 +335,7 @@ impl XTunnel {
                 }
             }
             _ => {
-                error!("[XPort] unsupport cmd:{:?}, discard msg", cmd);
+                error!("[XTunnel] unsupport cmd:{:?}, discard msg", cmd);
             }
         }
     }
@@ -335,7 +345,7 @@ impl XTunnel {
             return;
         }
 
-        //info!("[XPort] reply_ping");
+        //info!("[XTunnel] reply_ping");
         let mut vec = msg.buf.take().unwrap();
         let bs = &mut vec[2..];
         let offset = &mut 0;
@@ -347,21 +357,21 @@ impl XTunnel {
         match result {
             Err(e) => {
                 error!(
-                    "[XPort]reply_ping tun send error:{}, tun_tx maybe closed",
+                    "[XTunnel]reply_ping tun send error:{}, tun_tx maybe closed",
                     e
                 );
             }
             _ => {
-                //info!("[XPort]on_dns_reply unbounded_send request msg",)
+                //info!("[XTunnel]on_dns_reply unbounded_send request msg",)
             }
         }
     }
 
     fn on_pong(&mut self, bs: &[u8]) {
-        //info!("[XPort] on_pong");
+        //info!("[XTunnel] on_pong");
         let len = bs.len();
         if len != 8 {
-            error!("[XPort]pong data length({}) != 8", len);
+            error!("[XTunnel]pong data length({}) != 8", len);
             return;
         }
 
@@ -372,7 +382,7 @@ impl XTunnel {
         let timestamp = bs.read_with::<u64>(offset, LE).unwrap();
 
         let in_ms = self.get_elapsed_milliseconds();
-        assert!(in_ms >= timestamp, "[XPort]pong timestamp > now!");
+        assert!(in_ms >= timestamp, "[XTunnel]pong timestamp > now!");
     }
 
     fn get_request_tx(&self, req_idx: u16, req_tag: u16) -> Option<UnboundedSender<WMessage>> {
@@ -407,7 +417,7 @@ impl XTunnel {
         let req = &mut requests.elements[req_idx];
         if req.tag == req_tag && req.request_tx.is_some() {
             info!(
-                "[XPort]free_request_tx, req_idx:{}, req_tag:{}",
+                "[XTunnel]free_request_tx, req_idx:{}, req_tag:{}",
                 req_idx, req_tag
             );
             req.request_tx = None;
@@ -415,13 +425,13 @@ impl XTunnel {
     }
 
     pub fn on_request_connect_error(&mut self, req_idx: u16, req_tag: u16) {
-        info!("[XPort]on_request_connect_error, req_idx:{}", req_idx);
+        info!("[XTunnel]on_request_connect_error, req_idx:{}", req_idx);
 
         self.on_request_closed(req_idx, req_tag);
     }
 
     pub fn on_request_closed(&mut self, req_idx: u16, req_tag: u16) {
-        info!("[XPort]on_request_closed, req_idx:{}", req_idx);
+        info!("[XTunnel]on_request_closed, req_idx:{}", req_idx);
 
         if !self.check_req_valid(req_idx, req_tag) {
             return;
@@ -435,7 +445,7 @@ impl XTunnel {
         let r = reqs.free(req_idx, req_tag);
         if r {
             info!(
-                "[XPort]on_request_closed, tun index:{}, sub req_count by 1",
+                "[XTunnel]on_request_closed, tun index:{}, sub req_count by 1",
                 req_idx
             );
             self.req_count -= 1;
@@ -459,13 +469,16 @@ impl XTunnel {
 
             // send to peer, should always succeed
             if let Err(e) = self.tun_tx.as_ref().unwrap().unbounded_send(wmsg) {
-                error!("[XPort]send_request_closed_to_server tx send failed:{}", e);
+                error!(
+                    "[XTunnel]send_request_closed_to_server tx send failed:{}",
+                    e
+                );
             }
         }
     }
 
     pub fn on_request_recv_finished(&mut self, req_idx: u16, req_tag: u16) {
-        info!("[XPort] on_request_recv_finished:{}", req_idx);
+        info!("[XTunnel] on_request_recv_finished:{}", req_idx);
 
         if !self.check_req_valid(req_idx, req_tag) {
             return;
@@ -496,7 +509,7 @@ impl XTunnel {
         match result {
             Err(e) => {
                 error!(
-                    "[XPort] on_request_recv_finished, tun send error:{}, tun_tx maybe closed",
+                    "[XTunnel] on_request_recv_finished, tun send error:{}, tun_tx maybe closed",
                     e
                 );
             }
@@ -506,12 +519,12 @@ impl XTunnel {
 
     pub fn on_request_msg(&mut self, mut message: TMessage, req_idx: u16, req_tag: u16) -> bool {
         if !self.check_req_valid(req_idx, req_tag) {
-            error!("[XPort] on_request_msg failed, check_req_valid false");
+            error!("[XTunnel] on_request_msg failed, check_req_valid false");
             return false;
         }
 
         if self.tun_tx.is_none() {
-            error!("[XPort] on_request_msg failed, tun_tx is none");
+            error!("[XTunnel] on_request_msg failed, tun_tx is none");
             return false;
         }
 
@@ -527,7 +540,7 @@ impl XTunnel {
         th.write_to(msg_header);
 
         // info!(
-        //     "[XPort] send request response to peer, len:{}",
+        //     "[XTunnel] send request response to peer, len:{}",
         //     vec.len()
         // );
 
@@ -535,11 +548,11 @@ impl XTunnel {
         let result = self.tun_tx.as_ref().unwrap().unbounded_send(wmsg);
         match result {
             Err(e) => {
-                error!("[XPort]request tun send error:{}, tun_tx maybe closed", e);
+                error!("[XTunnel]request tun send error:{}, tun_tx maybe closed", e);
                 return false;
             }
             _ => {
-                // info!("[XPort]unbounded_send request msg, req_idx:{}", req_idx);
+                // info!("[XTunnel]unbounded_send request msg, req_idx:{}", req_idx);
             }
         }
 

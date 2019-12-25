@@ -234,6 +234,9 @@ fn send_request_quota(tun: &TunStub, qutoa: u16) {
     let tx = &tun.tunnel_tx;
     // send to peer, should always succeed
     if let Err(e) = tx.unbounded_send(wmsg) {
-        error!("[Tunnel]send_request_closed_to_server tx send failed:{}", e);
+        error!(
+            "[ReqServ]send_request_closed_to_server tx send failed:{}",
+            e
+        );
     }
 }

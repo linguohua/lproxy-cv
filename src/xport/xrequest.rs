@@ -56,7 +56,7 @@ impl XReqq {
     pub fn alloc(&mut self, req_idx: u16, req_tag: u16) {
         let elements = &mut self.elements;
         if (req_idx as usize) >= elements.len() {
-            error!("[XPort] alloc failed, req_idx exceed");
+            error!("[XReq] alloc failed, req_idx exceed");
             return;
         }
 
@@ -115,7 +115,7 @@ impl XReqq {
             let r = shutdown(rawfd, Shutdown::Both);
             match r {
                 Err(e) => {
-                    error!("[XPort]close_rawfd failed:{}", e);
+                    error!("[XReq]close_rawfd failed:{}", e);
                 }
                 _ => {}
             }

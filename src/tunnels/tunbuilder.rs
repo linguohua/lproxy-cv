@@ -131,7 +131,10 @@ pub fn ws_connect_async(
     };
 
     let path = format!("{}{}", path, query);
-    info!("ws_connect_async, host:{}, path:{}", host_str, path);
+    info!(
+        "[tunbuilder] ws_connect_async, host:{}, path:{}",
+        host_str, path
+    );
 
     let fut = dns::MyDns::new(relay_domain.to_string());
     let fut = fut.and_then(move |ipaddr| {
@@ -144,13 +147,13 @@ pub fn ws_connect_async(
         let tls_handshake = cx.connect(&host_str, socket);
         let fut = tls_handshake
             .map_err(|tslerr| {
-                println!("TLS connect error:{}", tslerr);
+                println!("[tunbuilder] TLS connect error:{}", tslerr);
                 std::io::Error::from(std::io::ErrorKind::NotConnected)
             })
             .and_then(move |socket| {
                 let handshake = lws::do_client_hanshake(socket, &host_str, &path);
                 let handshake = handshake.and_then(move |(lsocket, tail)| {
-                    println!("lws handshake completed");
+                    println!("[tunbuilder] lws handshake completed");
                     let framed = lws::LwsFramed::new(lsocket, tail);
 
                     Ok((framed, rawfd))

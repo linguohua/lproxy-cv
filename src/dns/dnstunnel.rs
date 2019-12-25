@@ -98,7 +98,7 @@ impl DnsTunnel {
                                 }
 
                                 Err(e) => {
-                                    error!("[Forwarder]parse dns packet failed:{}", e);
+                                    error!("[DnsTunnel]parse dns packet failed:{}", e);
                                 }
                             }
                         }

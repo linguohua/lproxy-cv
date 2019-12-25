@@ -29,7 +29,7 @@ impl Reqq {
         let elements = &mut self.elements;
 
         if free.len() < 1 {
-            error!("alloc failed, no free slot in reqq");
+            error!("[Reqq] alloc failed, no free slot in reqq");
 
             return (std::u16::MAX, std::u16::MAX);
         }

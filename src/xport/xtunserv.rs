@@ -34,7 +34,7 @@ pub fn xtunel_connect(xtun: &mut XTunnel, ll: LongLive) {
             if let Err(_) = rf.on_tunnel_created(rawfd, tx) {
                 // TODO: should return directly
                 if let Err(e) = shutdown(rawfd, Shutdown::Both) {
-                    error!("[tunbuilder]shutdown rawfd failed:{}", e);
+                    error!("[xtunserv]shutdown rawfd failed:{}", e);
                 }
             }
 
@@ -45,7 +45,7 @@ pub fn xtunel_connect(xtun: &mut XTunnel, ll: LongLive) {
             let clone2 = ll.clone();
 
             let receive_fut = stream.for_each(move |message| {
-                debug!("[tunbuilder]tunnel read a message");
+                debug!("[xtunserv]tunnel read a message");
                 // post to manager
                 let clone_a = clone1.clone();
                 let mut clone = clone1.borrow_mut();
@@ -54,9 +54,8 @@ pub fn xtunel_connect(xtun: &mut XTunnel, ll: LongLive) {
                 Ok(())
             });
 
-            let rx = rx.map_err(|_| {
-                std::io::Error::new(std::io::ErrorKind::Other, "[tunbuilder] rx-shit")
-            });
+            let rx = rx
+                .map_err(|_| std::io::Error::new(std::io::ErrorKind::Other, "[xtunserv] rx-shit"));
 
             let send_fut = rx.forward(sink);
 
@@ -66,7 +65,7 @@ pub fn xtunel_connect(xtun: &mut XTunnel, ll: LongLive) {
                 .map_err(|_| ())
                 .select(send_fut.map(|_| ()).map_err(|_| ()))
                 .then(move |_| {
-                    info!("[tunbuilder] both websocket futures completed");
+                    info!("[xtunserv] both websocket futures completed");
                     let mut rf = clone2.borrow_mut();
                     rf.on_tunnel_closed();
                     Ok(())
@@ -75,7 +74,7 @@ pub fn xtunel_connect(xtun: &mut XTunnel, ll: LongLive) {
         })
         .map_err(move |e| {
             error!(
-                "[tunbuilder]Error during the websocket handshake occurred: {}",
+                "[xtunserv]Error during the websocket handshake occurred: {}",
                 e
             );
             let mut rf = clone3.borrow_mut();
