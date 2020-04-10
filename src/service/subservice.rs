@@ -43,6 +43,19 @@ impl fmt::Display for SubServiceCtlCmd {
     }
 }
 
+impl fmt::Display for SubServiceType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let s;
+        match self {
+            SubServiceType::Forwarder => s = "Forwarder",
+            SubServiceType::RegMgr => s = "RegMgr",
+            SubServiceType::TunMgr => s = "TunMgr",
+            SubServiceType::XTunnel => s = "XTunnel",
+        }
+        write!(f, "({})", s)
+    }
+}
+
 pub struct SubServiceCtl {
     pub handler: Option<std::thread::JoinHandle<()>>,
     pub ctl_tx: Option<UnboundedSender<SubServiceCtlCmd>>,
@@ -250,6 +263,11 @@ fn start_one_tunmgr(
                 Ok(())
             });
 
+            let fut = fut.then(|_| {
+                info!("tunmgr sub-service rx fut exit");
+                Ok(())
+            });
+
             current_thread::spawn(fut);
 
             Ok(())
@@ -393,10 +411,11 @@ pub fn cleanup_subservices(subservices: &mut Vec<SubServiceCtl>) {
 
     // WARNING: thread block wait!
     for s in subservices.iter_mut() {
+        info!("[SubService] type {} try to join handle", s.sstype);
         let h = &mut s.handler;
         let h = h.take();
         h.unwrap().join().unwrap();
 
-        info!("[SubService] jon handle completed");
+        info!("[SubService] type {} join handle completed", s.sstype);
     }
 }

@@ -75,6 +75,7 @@ impl XTunnel {
         }
 
         self.discarded = true;
+        self.close_rawfd();
         self.keepalive_trigger = None;
     }
 
