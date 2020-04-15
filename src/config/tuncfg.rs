@@ -28,15 +28,26 @@ pub struct AuthReq {
     pub uuid: String,
     pub current_version: String,
     pub arch: String,
+    pub macs: Vec<String>
 }
 
 impl AuthReq {
     pub fn to_json_str(&self) -> String {
+        let macs = self.format_macs();
         format!(
             "{{\"uuid\":\"{}\",\
-             \"current_version\":\"{}\",\"arch\":\"{}\"}}",
-            self.uuid, self.current_version, self.arch
+             \"current_version\":\"{}\",\"arch\":\"{}\", macs:\"[{}]\"}}",
+            self.uuid, self.current_version, self.arch, macs
         )
+    }
+
+    fn format_macs(&self) -> String {
+        let mut macs = String::with_capacity(1024);
+        for mac in self.macs.iter() {
+            macs.push_str(&format!("{},", mac));
+        }
+
+        macs
     }
 }
 

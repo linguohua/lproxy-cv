@@ -13,6 +13,7 @@ use stream_cancel::{StreamExt, Trigger, Tripwire};
 use tokio::prelude::*;
 use tokio::runtime::current_thread;
 use tokio::timer::{Delay, Interval};
+use mac_address::{MacAddressIterator};
 
 // state constants
 const STATE_STOPPED: u8 = 0;
@@ -180,10 +181,12 @@ impl Service {
         let req = htp::HTTPRequest::new(&httpserver, Some(Duration::from_secs(10))).unwrap();
 
         let sclone = s.clone();
+        let macs = Service::fetch_all_macs();
         let ar = config::AuthReq {
             uuid,
             current_version: crate::VERSION.to_string(),
             arch,
+            macs
         };
 
         let arstr = ar.to_json_str();
@@ -660,5 +663,23 @@ impl Service {
             });
 
         current_thread::spawn(task);
+    }
+
+    fn fetch_all_macs() ->Vec<String> {
+        let mut macs = Vec::with_capacity(8);
+        let mac_address_iterator = MacAddressIterator::new();
+ 
+        match mac_address_iterator {
+            Ok(iterator) => {
+                for address in iterator {
+                    macs.push(format!("{}", address));
+                }
+            },
+            Err(e) => {
+                error!("fetch_all_macs MacAddressIterator::new error:{}", e);
+            }
+        }
+
+        macs
     }
 }

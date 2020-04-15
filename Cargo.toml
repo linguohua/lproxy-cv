@@ -43,6 +43,7 @@ fs2 = "0.4.3"
 rand = "0.7.2"
 base64 = "0.10.1"
 #iptables = "0.2.2"
+mac_address = "1.0.3"
 
 [dependencies.signal-hook]
 version = "0.1.10"
