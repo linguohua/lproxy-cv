@@ -28,7 +28,7 @@ pub struct AuthReq {
     pub uuid: String,
     pub current_version: String,
     pub arch: String,
-    pub macs: Vec<String>
+    pub macs: Vec<String>,
 }
 
 impl AuthReq {
@@ -36,15 +36,20 @@ impl AuthReq {
         let macs = self.format_macs();
         format!(
             "{{\"uuid\":\"{}\",\
-             \"current_version\":\"{}\",\"arch\":\"{}\", macs:\"[{}]\"}}",
+             \"current_version\":\"{}\",\"arch\":\"{}\", \"macs\":[{}]}}",
             self.uuid, self.current_version, self.arch, macs
         )
     }
 
     fn format_macs(&self) -> String {
         let mut macs = String::with_capacity(1024);
-        for mac in self.macs.iter() {
-            macs.push_str(&format!("{},", mac));
+        let len = self.macs.len();
+        for i in 0..len {
+            let mac = &self.macs[i];
+            macs.push_str(&format!("\"{}\"", mac));
+            if i < len -1 {
+                macs.push_str(",");
+            }
         }
 
         macs

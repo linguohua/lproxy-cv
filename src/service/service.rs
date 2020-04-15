@@ -3,6 +3,7 @@ use crate::config::{self, CFG_MONITOR_INTERVAL, LPROXY_SCRIPT};
 use crate::htp;
 use futures::sync::mpsc::UnboundedSender;
 use log::{debug, error, info};
+use mac_address::MacAddressIterator;
 use std::cell::RefCell;
 use std::env;
 use std::fmt;
@@ -13,7 +14,6 @@ use stream_cancel::{StreamExt, Trigger, Tripwire};
 use tokio::prelude::*;
 use tokio::runtime::current_thread;
 use tokio::timer::{Delay, Interval};
-use mac_address::{MacAddressIterator};
 
 // state constants
 const STATE_STOPPED: u8 = 0;
@@ -186,10 +186,11 @@ impl Service {
             uuid,
             current_version: crate::VERSION.to_string(),
             arch,
-            macs
+            macs,
         };
 
         let arstr = ar.to_json_str();
+        info!("auth req:{}", arstr);
         let fut = req
             .exec(Some(arstr))
             .and_then(move |response| {
@@ -665,16 +666,27 @@ impl Service {
         current_thread::spawn(task);
     }
 
-    fn fetch_all_macs() ->Vec<String> {
+    fn fetch_all_macs() -> Vec<String> {
         let mut macs = Vec::with_capacity(8);
         let mac_address_iterator = MacAddressIterator::new();
- 
+
         match mac_address_iterator {
             Ok(iterator) => {
                 for address in iterator {
-                    macs.push(format!("{}", address));
+                    let mac_bytes = address.bytes();
+                    if mac_bytes[0] == 0
+                        && mac_bytes[1] == 0
+                        && mac_bytes[2] == 0
+                        && mac_bytes[3] == 0
+                        && mac_bytes[4] == 0
+                        && mac_bytes[5] == 0
+                    {
+                        continue;
+                    }
+    
+                    macs.push(address.to_string());
                 }
-            },
+            }
             Err(e) => {
                 error!("fetch_all_macs MacAddressIterator::new error:{}", e);
             }
