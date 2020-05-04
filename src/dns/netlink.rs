@@ -14,13 +14,13 @@ const NFNL_SUBSYS_IPSET: u16 = 6;
 const IPSET_PROTOCOL: u8 = 6;
 const IPSET_ATTR_PROTOCOL: u16 = 1;
 const IPSET_ATTR_SETNAME: u16 = 2;
-const NLA_F_NESTED: u16 = (1 << 15);
+const NLA_F_NESTED: u16 = 1 << 15;
 const IPSET_ATTR_DATA: u16 = 7;
 const IPSET_ATTR_IPADDR_IPV4: u16 = 1;
 const IPSET_ATTR_IPADDR_IPV6: u16 = 2;
 const IPSET_ATTR_IP: u16 = 1;
 const IPSET_ATTR_CIDR: u16 = 3;
-const NLA_F_NET_BYTEORDER: u16 = (1 << 14);
+const NLA_F_NET_BYTEORDER: u16 = 1 << 14;
 
 struct NlMsgHdr {
     /// Length of the netlink packet, including the header and the payload

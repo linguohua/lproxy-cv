@@ -1,6 +1,6 @@
 [package]
 name = "lproxy-cv"
-version = "0.1.5"
+version = "0.1.6"
 authors = ["linguohua <lghchinaidea@gmail.com>"]
 edition = "2018"
 
@@ -24,7 +24,7 @@ nix = "0.15.0"
 tokio-io-timeout = "0.3.1"
 libc = "0.2.65"
 openssl = "0.10.25"
-native-tls = "0.2.3"
+native-tls = "0.2.4"
 tokio-io = "0.1.12"
 tokio-tls = "0.2.1"
 log = "0.4.8"
