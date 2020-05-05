@@ -413,6 +413,10 @@ impl Service {
         let pb;
         {
             let mut s2 = s.borrow_mut();
+            if s2.acc_log.is_empty() {
+                return;
+            }
+            
             pb = s2.acc_log.dump_to_pb();
             s2.acc_log.clear_log();
         }

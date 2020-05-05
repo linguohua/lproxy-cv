@@ -106,4 +106,8 @@ impl AccLog {
 
         report
     }
+
+    pub fn is_empty(&self) -> bool {
+        self.acc_domains.is_empty()
+    }
 }
