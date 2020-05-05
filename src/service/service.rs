@@ -1,4 +1,5 @@
-use super::{SubServiceCtl, SubServiceCtlCmd, SubServiceType};
+use std::net::IpAddr;
+use super::{SubServiceCtl, SubServiceCtlCmd, SubServiceType, AccLog, DNSAddRecord};
 use crate::config::{self, CFG_MONITOR_INTERVAL, LPROXY_SCRIPT};
 use crate::htp;
 use futures::sync::mpsc::UnboundedSender;
@@ -14,6 +15,7 @@ use stream_cancel::{StreamExt, Trigger, Tripwire};
 use tokio::prelude::*;
 use tokio::runtime::current_thread;
 use tokio::timer::{Delay, Interval};
+use protobuf::{Message};
 
 // state constants
 const STATE_STOPPED: u8 = 0;
@@ -23,11 +25,13 @@ const STATE_STOPPING: u8 = 3;
 
 type LongLive = Rc<RefCell<Service>>;
 
-enum Instruction {
+pub enum Instruction {
     Auth,
     StartSubServices,
     ServerCfgMonitor,
     Restart,
+    AccessLog(IpAddr, IpAddr),
+    DNSAdd(DNSAddRecord),
 }
 
 impl fmt::Display for Instruction {
@@ -38,12 +42,14 @@ impl fmt::Display for Instruction {
             Instruction::StartSubServices => s = "StartSubServices",
             Instruction::ServerCfgMonitor => s = "ServerCfgMonitor",
             Instruction::Restart => s = "Restart",
+            Instruction::AccessLog(_,_) => s = "AccessLog",
+            Instruction::DNSAdd(_) => s = "DNSAdd",
         }
         write!(f, "({})", s)
     }
 }
 
-type TxType = UnboundedSender<Instruction>;
+pub type TxType = UnboundedSender<Instruction>;
 
 pub struct Service {
     state: u8,
@@ -55,6 +61,7 @@ pub struct Service {
     domains: Option<Vec<String>>,
     is_upgrading: bool,
     uuid: String,
+    acc_log: AccLog,
 }
 
 impl Service {
@@ -69,6 +76,7 @@ impl Service {
             domains: None,
             is_upgrading: false,
             uuid,
+            acc_log: AccLog::new(),
         }))
     }
 
@@ -142,6 +150,12 @@ impl Service {
             Instruction::Restart => {
                 Service::do_restart(s.clone());
             }
+            Instruction::AccessLog(src, dst) => {
+                Service::do_access_log(s.clone(), src, dst);
+            }
+            Instruction::DNSAdd(da) => {
+                Service::do_dns_add(s.clone(), da);
+            }
         }
     }
 
@@ -192,7 +206,7 @@ impl Service {
         let arstr = ar.to_json_str();
         info!("auth req:{}", arstr);
         let fut = req
-            .exec(Some(arstr))
+            .exec(Some(Vec::from(arstr.as_bytes())))
             .and_then(move |response| {
                 let mut retry = true;
                 if let Some(mut rsp) = Service::parse_auth_reply(&response) {
@@ -315,7 +329,7 @@ impl Service {
         let req = req.unwrap();
         let sclone = s.clone();
         let fut = req
-            .exec(Some(arstr))
+            .exec(Some(Vec::from(arstr.as_bytes())))
             .and_then(move |response| {
                 // info!("[Service]do_cfg_monitor http response:{:?}", response);
 
@@ -368,6 +382,69 @@ impl Service {
             });
 
         current_thread::spawn(fut);
+
+        Service::do_access_report(s);
+    }
+
+    fn do_access_report(s: LongLive) {
+        info!("[Service]do_access_report");
+        let token;
+        {
+            token = s.borrow().tuncfg.as_ref().unwrap().token.to_string();
+        }
+
+        let access_report_url;
+        {
+            access_report_url = format!(
+                "{}?tok={}",
+                s.borrow().tuncfg.as_ref().unwrap().cfg_access_report_url,
+                token
+            );
+        }
+
+        // no monitor url configured
+        if access_report_url.len() < 1 || token.len() < 1 {
+            // just clear it
+            s.borrow_mut().acc_log.clear_log();            
+            return;
+        }
+
+        // format to pb
+        let pb;
+        {
+            let mut s2 = s.borrow_mut();
+            pb = s2.acc_log.dump_to_pb();
+            s2.acc_log.clear_log();
+        }
+
+        let out_bytes: Vec<u8> = pb.write_to_bytes().unwrap();
+
+        // send to server
+        let httpserver = access_report_url;
+        let req = htp::HTTPRequest::new(&httpserver, Some(Duration::from_secs(10)));
+        if req.is_err() {
+            error!(
+                "[Service]do_access_report construct req failed:{}",
+                req.err().unwrap()
+            );
+
+            return;
+        }
+
+        let req = req.unwrap();
+        let fut = req
+            .exec(Some(out_bytes))
+            .and_then(|_| {
+                // info!("[Service]do_access_report http response:{:?}", response);
+                Ok(())
+            })
+            .or_else(move |e| {
+                error!("[Service]do_access_report http request failed, error:{}", e);
+
+                Ok(())
+            });
+
+        current_thread::spawn(fut);        
     }
 
     fn notify_forwarder_update_domains(&self, domains: Vec<String>) {
@@ -544,6 +621,7 @@ impl Service {
             cfg = s.borrow().tuncfg.as_ref().unwrap().clone();
         }
         let domains;
+        let service_tx;
         {
             let mut ss = s.borrow_mut();
             if ss.domains.is_some() {
@@ -551,6 +629,7 @@ impl Service {
             } else {
                 domains = Vec::new();
             }
+            service_tx = ss.ins_tx.as_ref().unwrap().clone();
         }
 
         // we need to create ipset first, otherwise Forwarder can't insert ip to set
@@ -558,7 +637,7 @@ impl Service {
 
         let clone = s.clone();
         let clone2 = s.clone();
-        let fut = super::start_subservice(cfg, domains)
+        let fut = super::start_subservice(service_tx, cfg, domains)
             .and_then(move |subservices| {
                 let s2 = &mut clone.borrow_mut();
                 let vec_subservices = &mut subservices.borrow_mut();
@@ -588,6 +667,14 @@ impl Service {
         let mut s = s1.borrow_mut();
         s.stop();
         s.start(s1.clone());
+    }
+
+    fn do_access_log(s1: LongLive, src: IpAddr, dst: IpAddr) {
+        s1.borrow_mut().acc_log.log(src, dst);
+    }
+
+    fn do_dns_add(s1: LongLive, da :DNSAddRecord) {
+        s1.borrow_mut().acc_log.domain_add(da);
     }
 
     fn save_tx(&mut self, tx: Option<TxType>) {

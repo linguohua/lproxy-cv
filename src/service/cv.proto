@@ -1,0 +1,11 @@
+syntax = "proto3";
+
+// protoc --rust_out=. cv.proto
+message AccDomain {
+    string domain = 1;
+    repeated uint32 srcIP = 2;
+}
+
+message AccReport {
+    repeated AccDomain domains = 1;
+}

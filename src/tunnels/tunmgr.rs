@@ -2,6 +2,7 @@ use super::tunbuilder;
 use super::Tunnel;
 use super::{Request, TunStub};
 use crate::config::{TunCfg, KEEP_ALIVE_INTERVAL};
+use crate::service::{Instruction,TxType};
 use failure::Error;
 use log::{debug, error, info};
 use std::cell::RefCell;
@@ -31,10 +32,11 @@ pub struct TunMgr {
     discarded: bool,
     keepalive_trigger: Option<Trigger>,
     pub token: String,
+    service_tx: TxType,
 }
 
 impl TunMgr {
-    pub fn new(tunnel_count: usize, cfg: &TunCfg) -> LongLive {
+    pub fn new(service_tx:TxType, tunnel_count: usize, cfg: &TunCfg) -> LongLive {
         info!("[TunMgr]new TunMgr");
         let capacity = tunnel_count;
 
@@ -60,6 +62,7 @@ impl TunMgr {
             current_tun_idx: 0,
             request_quota: cfg.request_quota as u16,
             token,
+            service_tx:service_tx,
         }))
     }
 
@@ -373,5 +376,12 @@ impl TunMgr {
             });
 
         current_thread::spawn(task);
+    }
+
+    pub fn log_access(&self, peer_addr: std::net::IpAddr , target_ip : std::net::IpAddr) {
+        // send to service
+        if let Err(e) = self.service_tx.unbounded_send(Instruction::AccessLog(peer_addr, target_ip)){
+            error!("[TunMgr]log_access unbounded_send failed:{}", e);
+        }
     }
 }

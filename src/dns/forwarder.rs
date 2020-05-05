@@ -19,6 +19,7 @@ use stream_cancel::{StreamExt, Trigger, Tripwire};
 use tokio::prelude::*;
 use tokio::runtime::current_thread;
 use tokio::timer::Interval;
+use crate::service::{DNSAddRecord, TxType, Instruction};
 
 type TunnelItem = Option<Rc<RefCell<DnsTunnel>>>;
 
@@ -44,10 +45,12 @@ pub struct Forwarder {
 
     nsock: NLSocket,
     pub token: String,
+
+    service_tx: TxType,
 }
 
 impl Forwarder {
-    pub fn new(cfg: &TunCfg, domain_array: Vec<String>) -> Rc<RefCell<Forwarder>> {
+    pub fn new(service_tx:TxType, cfg: &TunCfg, domain_array: Vec<String>) -> Rc<RefCell<Forwarder>> {
         let capacity = cfg.dns_tunnel_number;
 
         let mut vec = Vec::with_capacity(capacity);
@@ -78,6 +81,7 @@ impl Forwarder {
             lresolver: LocalResolver::new(&cfg.local_dns_server),
             nsock,
             token,
+            service_tx,
         }))
     }
 
@@ -353,28 +357,35 @@ impl Forwarder {
     }
 
     pub fn save_ipset(&self, p: &DnsPacket) {
+        let mut da = DNSAddRecord::new();
         for a in p.answers.iter() {
             match a {
                 DnsRecord::A {
-                    domain: _,
+                    domain: d,
                     addr,
                     ttl: _,
                 } => {
                     info!("[Forwarder] try to save ipv4 into ipset:{}", addr);
                     let ipv4 = addr.octets();
                     Forwarder::ipset_add_iphash(&self.nsock, &ipv4[..], IPSET_TABLE_NULL);
+                    da.add(std::net::IpAddr::V4(*addr), d);
                 }
                 DnsRecord::AAAA {
-                    domain: _,
+                    domain: d,
                     addr,
                     ttl: _,
                 } => {
                     let ipv6 = addr.octets();
                     info!("[Forwarder] try to save ipv6 into ipset:{}", addr);
                     Forwarder::ipset_add_iphash(&self.nsock, &ipv6[..], IPSET_TABLE6_NULL);
+                    da.add(std::net::IpAddr::V6(*addr), d);
                 }
                 _ => {}
             }
+        }
+
+        if let Err(e) = self.service_tx.unbounded_send(Instruction::DNSAdd(da)){
+            error!("[Forwarder]save_ipset unbounded_send failed:{}", e);
         }
     }
 

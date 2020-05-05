@@ -18,6 +18,8 @@ pub struct TunCfg {
     pub token: String,
 
     pub cfg_monitor_url: String,
+
+    pub cfg_access_report_url: String,
 }
 
 pub fn server_url() -> String {
@@ -142,6 +144,11 @@ impl AuthResp {
                 None => "https://localhost:8000/cfgmonitor".to_string(),
             };
 
+            let cfg_access_report_url = match v_tuncfg["cfg_access_report_url"].as_str() {
+                Some(t) => t.to_string(),
+                None => "https://localhost:8000/accreport".to_string(),
+            };
+
             let tunnel_req_cap = match v_tuncfg["tunnel_req_cap"].as_u64() {
                 Some(t) => t as usize,
                 None => 100,
@@ -199,6 +206,7 @@ impl AuthResp {
                 token: token.to_string(),
                 domains_ver,
                 cfg_monitor_url,
+                cfg_access_report_url,
             };
 
             tuncfg = Some(tc);

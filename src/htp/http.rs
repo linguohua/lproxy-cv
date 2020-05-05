@@ -37,7 +37,7 @@ impl HTTPRequest {
         })
     }
 
-    pub fn exec(&self, body: Option<String>) -> impl Future<Item = HTTPResponse, Error = Error> {
+    pub fn exec(&self, body: Option<Vec<u8>>) -> impl Future<Item = HTTPResponse, Error = Error> {
         if self.is_secure() {
             Either::A(self.https_exec(body))
         } else {
@@ -45,7 +45,7 @@ impl HTTPRequest {
         }
     }
 
-    fn http_exec(&self, body: Option<String>) -> impl Future<Item = HTTPResponse, Error = Error> {
+    fn http_exec(&self, body: Option<Vec<u8>>) -> impl Future<Item = HTTPResponse, Error = Error> {
         let urlparsed = &self.url_parsed;
         let host = urlparsed.host_str().unwrap();
         let port = urlparsed.port_or_known_default().unwrap();
@@ -67,7 +67,7 @@ impl HTTPRequest {
         let fut = fut.map_err(|e| e.into()).and_then(move |socket| {
             let vec;
             if let Some(s) = body {
-                vec = Vec::from(([head_str, s].concat()).as_bytes());
+                vec = Vec::from([head_str.as_bytes(), &s[..]].concat());
             } else {
                 vec = Vec::from(head_str.as_bytes());
             }
@@ -97,7 +97,7 @@ impl HTTPRequest {
         })
     }
 
-    fn https_exec(&self, body: Option<String>) -> impl Future<Item = HTTPResponse, Error = Error> {
+    fn https_exec(&self, body: Option<Vec<u8>>) -> impl Future<Item = HTTPResponse, Error = Error> {
         let urlparsed = &self.url_parsed;
         let host = urlparsed.host_str().unwrap();
         let port = urlparsed.port_or_known_default().unwrap();
@@ -128,7 +128,7 @@ impl HTTPRequest {
             let request = tls_handshake.and_then(move |socket| {
                 let vec;
                 if let Some(s) = body {
-                    vec = Vec::from(([head_str, s].concat()).as_bytes());
+                    vec = Vec::from([head_str.as_bytes(), &s[..]].concat());
                 } else {
                     vec = Vec::from(head_str.as_bytes());
                 }

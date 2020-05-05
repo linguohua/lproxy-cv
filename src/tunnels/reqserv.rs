@@ -42,6 +42,11 @@ pub fn serve_sock(socket: TcpStream, mgr: Rc<RefCell<TunMgr>>) {
     }
 
     info!("[ReqServ]serve_sock, ip:{}, port:{}", ip, port);
+    {
+        let peer_addr = socket.peer_addr().unwrap();
+        // log access
+        mgr.borrow().log_access(peer_addr.ip(), ip.to_std())
+    }
 
     // set 2 seconds write-timeout
     let mut socket = TimeoutStream::new(socket);
