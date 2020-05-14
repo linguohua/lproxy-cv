@@ -716,14 +716,20 @@ impl Service {
 
     pub fn config_sys(&self) {
         info!("[Service]config_sys");
-        // let tuncfg = self.tuncfg.as_ref().unwrap();
-        super::iptable_rule::set_iptables_rules();
+        let tuncfg = self.tuncfg.as_ref().unwrap();
+        if tuncfg.work_as_global {
+            super::iptable_rule::set_iptables_rules_for_global();
+        } else {
+            super::iptable_rule::set_iptables_rules();
+        }
+
         super::ip_rules::set_ip_rules();
     }
 
     pub fn restore_sys(&self) {
         info!("[Service]restore_sys");
         super::iptable_rule::unset_iptables_rules();
+        super::iptable_rule::unset_iptables_rules_for_global();
         super::ip_rules::unset_ip_rules();
         super::ipset::unset_ipset();
 

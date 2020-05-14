@@ -20,6 +20,7 @@ pub struct TunCfg {
     pub cfg_monitor_url: String,
 
     pub cfg_access_report_url: String,
+    pub work_as_global : bool,
 }
 
 pub fn server_url() -> String {
@@ -179,6 +180,11 @@ impl AuthResp {
                 None => 1,
             };
 
+            let work_as_global = match v_tuncfg["work_as_global"].as_bool() {
+                Some(t) => t,
+                None => false,
+            };
+
             let mut domain_array: Vec<String> = Vec::new();
             match v_tuncfg["domain_array"].as_array() {
                 Some(t_array) => {
@@ -207,6 +213,7 @@ impl AuthResp {
                 domains_ver,
                 cfg_monitor_url,
                 cfg_access_report_url,
+                work_as_global,
             };
 
             tuncfg = Some(tc);

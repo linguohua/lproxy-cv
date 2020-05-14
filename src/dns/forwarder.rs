@@ -47,6 +47,8 @@ pub struct Forwarder {
     pub token: String,
 
     service_tx: TxType,
+
+    work_as_global: bool,
 }
 
 impl Forwarder {
@@ -82,6 +84,7 @@ impl Forwarder {
             nsock,
             token,
             service_tx,
+            work_as_global: cfg.work_as_global,
         }))
     }
 
@@ -327,7 +330,7 @@ impl Forwarder {
             Ok(p) => {
                 let q = &p.questions[0];
 
-                if self.domap.has(&q.name) {
+                if self.work_as_global || self.domap.has(&q.name) {
                     info!("[Forwarder]dns domain:{}, use remote resolver", q.name);
                     // select tunnel
                     let tun = self.alloc_tunnel_for_req();
@@ -357,6 +360,36 @@ impl Forwarder {
     }
 
     pub fn save_ipset(&self, p: &DnsPacket) {
+        if !self.work_as_global {
+            for a in p.answers.iter() {
+                match a {
+                    DnsRecord::A {
+                        domain: _,
+                        addr,
+                        ttl: _,
+                    } => {
+                        info!("[Forwarder] try to save ipv4 into ipset:{}", addr);
+                        let ipv4 = addr.octets();
+                        Forwarder::ipset_add_iphash(&self.nsock, &ipv4[..], IPSET_TABLE_NULL);
+                    }
+                    DnsRecord::AAAA {
+                        domain: _,
+                        addr,
+                        ttl: _,
+                    } => {
+                        let ipv6 = addr.octets();
+                        info!("[Forwarder] try to save ipv6 into ipset:{}", addr);
+                        Forwarder::ipset_add_iphash(&self.nsock, &ipv6[..], IPSET_TABLE6_NULL);
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        self.save_domain_record(p);
+    }
+
+    fn save_domain_record(&self, p: &DnsPacket) {
         let mut da = DNSAddRecord::new();
         for a in p.answers.iter() {
             match a {
@@ -365,9 +398,6 @@ impl Forwarder {
                     addr,
                     ttl: _,
                 } => {
-                    info!("[Forwarder] try to save ipv4 into ipset:{}", addr);
-                    let ipv4 = addr.octets();
-                    Forwarder::ipset_add_iphash(&self.nsock, &ipv4[..], IPSET_TABLE_NULL);
                     da.add(std::net::IpAddr::V4(*addr), d);
                 }
                 DnsRecord::AAAA {
@@ -375,9 +405,6 @@ impl Forwarder {
                     addr,
                     ttl: _,
                 } => {
-                    let ipv6 = addr.octets();
-                    info!("[Forwarder] try to save ipv6 into ipset:{}", addr);
-                    Forwarder::ipset_add_iphash(&self.nsock, &ipv6[..], IPSET_TABLE6_NULL);
                     da.add(std::net::IpAddr::V6(*addr), d);
                 }
                 _ => {}
