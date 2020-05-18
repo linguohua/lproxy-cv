@@ -10,11 +10,12 @@ use std::env;
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
-use std::time::{Duration, Instant};
-use stream_cancel::{StreamExt, Trigger, Tripwire};
-use tokio::prelude::*;
-use tokio::time::{Delay, Interval};
+use std::time::{Duration};
+use stream_cancel::{Trigger, Tripwire};
 use protobuf::{Message};
+use futures_03::prelude::*;
+use std::fs::File;
+use std::io::prelude::*;
 
 // state constants
 const STATE_STOPPED: u8 = 0;
@@ -90,17 +91,17 @@ impl Service {
             self.save_instruction_trigger(trigger);
 
             let clone = s.clone();
-            let fut = rx
+            let fut = async move { 
+                let fx_fut = rx
                 .take_until(tripwire)
                 .for_each(move |ins| {
                     Service::process_instruction(clone.clone(), ins);
-                    Ok(())
-                })
-                .then(|_| {
-                    info!("[Service] instruction rx future completed");
-
-                    Ok(())
+                    future::ready(())
                 });
+                info!("[Service] instruction rx future completed");
+
+                fx_fut.await;
+            };
 
             self.save_tx(Some(tx));
             self.fire_instruction(Instruction::Auth);
@@ -204,68 +205,64 @@ impl Service {
 
         let arstr = ar.to_json_str();
         info!("auth req:{}", arstr);
-        let fut = req
-            .exec(Some(Vec::from(arstr.as_bytes())))
-            .and_then(move |response| {
-                let mut retry = true;
-                if let Some(mut rsp) = Service::parse_auth_reply(&response) {
-                    info!("[Service]do_auth http response token:{}", rsp.token);
-                    if rsp.error == 0 {
-                        // first check if we need upgrade
-                        if rsp.need_upgrade && rsp.upgrade_url.len() > 0 {
-                            let dir = Service::get_upgrade_target_filepath();
-                            if dir.is_none() {
-                                error!("[Service]do_auth, failed to upgrade, no target dir found");
-                            } else {
-                                let sclone2 = sclone.clone();
+        let fut = async move {
+            match req.exec(Some(Vec::from(arstr.as_bytes()))).await {
+                Ok(response) => {
+                    let mut retry = true;
+                    if let Some(mut rsp) = Service::parse_auth_reply(&response) {
+                        info!("[Service]do_auth http response token:{}", rsp.token);
+                        if rsp.error == 0 {
+                            // first check if we need upgrade
+                            if rsp.need_upgrade && rsp.upgrade_url.len() > 0 {
+                                let dir = Service::get_upgrade_target_filepath();
+                                if dir.is_none() {
+                                    error!("[Service]do_auth, failed to upgrade, no target dir found");
+                                } else {
+                                    let sclone2 = sclone.clone();
+                                    let mut rf = sclone.borrow_mut();
+                                    let dir = dir.unwrap();
+                                    rf.do_download(sclone2, dir.0, dir.1, &rsp.upgrade_url);
+                                }
+                            } else if rsp.tuncfg.is_some() {
+                                let mut cfg = rsp.tuncfg.take().unwrap();
                                 let mut rf = sclone.borrow_mut();
-                                let dir = dir.unwrap();
-                                rf.do_download(sclone2, dir.0, dir.1, &rsp.upgrade_url);
+                                rf.domains = Some(cfg.domain_array.take().unwrap());
+    
+                                info!(
+                                    "[Service]do_auth http response, tunnel count:{}, req cap:{}",
+                                    cfg.tunnel_number, cfg.tunnel_req_cap
+                                );
+    
+                                rf.save_cfg(cfg);
+                                rf.fire_instruction(Instruction::StartSubServices);
+                                retry = false;
+                            } else {
+                                error!("[Service]do_auth http request failed, no tuncfg, retry later");
                             }
-                        } else if rsp.tuncfg.is_some() {
-                            let mut cfg = rsp.tuncfg.take().unwrap();
-                            let mut rf = sclone.borrow_mut();
-                            rf.domains = Some(cfg.domain_array.take().unwrap());
-
-                            info!(
-                                "[Service]do_auth http response, tunnel count:{}, req cap:{}",
-                                cfg.tunnel_number, cfg.tunnel_req_cap
-                            );
-
-                            rf.save_cfg(cfg);
-                            rf.fire_instruction(Instruction::StartSubServices);
-                            retry = false;
                         } else {
-                            error!("[Service]do_auth http request failed, no tuncfg, retry later");
+                            error!(
+                                "[Service]do_auth, server return error:{}, retry later",
+                                rsp.error
+                            );
                         }
-                    } else {
-                        error!(
-                            "[Service]do_auth, server return error:{}, retry later",
-                            rsp.error
-                        );
-                    }
-                } else {
-                    error!("[Service]do_auth http request failed, no body, retry later");
+
+                        if retry {
+                            let seconds = 30;
+                            error!("[Service]do_auth retry {} seconds later", seconds);
+                            Service::delay_post_instruction(sclone.clone(), seconds, Instruction::Auth);
+                        }
+                }},
+                Err(e) => {
+                    let seconds = 5;
+                    error!(
+                        "[Service]do_auth http request failed, error:{}, retry {} seconds later",
+                        e, seconds
+                    );
+    
+                    Service::delay_post_instruction(s.clone(), seconds, Instruction::Auth);
                 }
-
-                if retry {
-                    let seconds = 30;
-                    error!("[Service]do_auth retry {} seconds later", seconds);
-                    Service::delay_post_instruction(sclone.clone(), seconds, Instruction::Auth);
-                }
-                Ok(())
-            })
-            .or_else(move |e| {
-                let seconds = 5;
-                error!(
-                    "[Service]do_auth http request failed, error:{}, retry {} seconds later",
-                    e, seconds
-                );
-
-                Service::delay_post_instruction(s.clone(), seconds, Instruction::Auth);
-
-                Ok(())
-            });
+            }
+        };
 
         tokio::task::spawn_local(fut);
     }
@@ -327,61 +324,57 @@ impl Service {
 
         let req = req.unwrap();
         let sclone = s.clone();
-        let fut = req
-            .exec(Some(Vec::from(arstr.as_bytes())))
-            .and_then(move |response| {
-                // info!("[Service]do_cfg_monitor http response:{:?}", response);
-
-                if let Some(mut rsp) = Service::parse_auth_reply(&response) {
-                    if rsp.error == 0 {
-                        if rsp.tuncfg.is_some() {
-                            let mut cfg = rsp.tuncfg.take().unwrap();
-                            let mut rf = sclone.borrow_mut();
-
-                            if cfg.domain_array.is_some() {
-                                let domains = cfg.domain_array.take().unwrap();
-                                if domains.len() > 0 {
-                                    rf.notify_forwarder_update_domains(domains);
-                                }
-                            }
-
-                            rf.save_cfg(cfg);
-                            rf.notify_subservice_update_cfg();
-                        }
-
-                        if rsp.need_upgrade && rsp.upgrade_url.len() > 0 {
-                            // do upgrade
-                            // download from upgrade_url, save to /a or /b directory
-                            // /a or /b determise: if current is /a, the use /b; otherwise reverse
-                            // when download completed, exit, then external monitor will restart me.
-                            let dir = Service::get_upgrade_target_filepath();
-                            if dir.is_none() {
-                                error!(
-                                "[Service]do_cfg_monitor, failed to upgrade, no target dir found"
-                            );
-                            } else {
-                                let sclone2 = sclone.clone();
+        let fut = async move {
+            match req.exec(Some(Vec::from(arstr.as_bytes()))).await {
+                Ok(response) => {
+                    if let Some(mut rsp) = Service::parse_auth_reply(&response) {
+                        if rsp.error == 0 {
+                            if rsp.tuncfg.is_some() {
+                                let mut cfg = rsp.tuncfg.take().unwrap();
                                 let mut rf = sclone.borrow_mut();
-                                let dir = dir.unwrap();
-                                rf.do_download(sclone2, dir.0, dir.1, &rsp.upgrade_url);
+    
+                                if cfg.domain_array.is_some() {
+                                    let domains = cfg.domain_array.take().unwrap();
+                                    if domains.len() > 0 {
+                                        rf.notify_forwarder_update_domains(domains);
+                                    }
+                                }
+    
+                                rf.save_cfg(cfg);
+                                rf.notify_subservice_update_cfg();
                             }
-                        } else if rsp.restart {
-                            let rf = sclone.borrow();
-                            rf.fire_instruction(Instruction::Restart);
+    
+                            if rsp.need_upgrade && rsp.upgrade_url.len() > 0 {
+                                // do upgrade
+                                // download from upgrade_url, save to /a or /b directory
+                                // /a or /b determise: if current is /a, the use /b; otherwise reverse
+                                // when download completed, exit, then external monitor will restart me.
+                                let dir = Service::get_upgrade_target_filepath();
+                                if dir.is_none() {
+                                    error!(
+                                    "[Service]do_cfg_monitor, failed to upgrade, no target dir found"
+                                );
+                                } else {
+                                    let sclone2 = sclone.clone();
+                                    let mut rf = sclone.borrow_mut();
+                                    let dir = dir.unwrap();
+                                    rf.do_download(sclone2, dir.0, dir.1, &rsp.upgrade_url);
+                                }
+                            } else if rsp.restart {
+                                let rf = sclone.borrow();
+                                rf.fire_instruction(Instruction::Restart);
+                            }
                         }
                     }
+                },
+                Err(e) => {
+                    error!("[Service]do_cfg_monitor http request failed, error:{}", e);
                 }
-
-                Ok(())
-            })
-            .or_else(move |e| {
-                error!("[Service]do_cfg_monitor http request failed, error:{}", e);
-
-                Ok(())
-            });
+            }
+        };
 
         tokio::task::spawn_local(fut);
-
+        // addition: do access report
         Service::do_access_report(s);
     }
 
@@ -435,17 +428,14 @@ impl Service {
         }
 
         let req = req.unwrap();
-        let fut = req
-            .exec(Some(out_bytes))
-            .and_then(|_| {
-                // info!("[Service]do_access_report http response:{:?}", response);
-                Ok(())
-            })
-            .or_else(move |e| {
-                error!("[Service]do_access_report http request failed, error:{}", e);
-
-                Ok(())
-            });
+        let fut = async move {
+            match req.exec(Some(out_bytes)).await {
+                Err(e) => {
+                    error!("[Service]do_access_report http request failed, error:{}", e);
+                }
+                _ => {}
+            }
+        };
 
         tokio::task::spawn_local(fut);        
     }
@@ -456,7 +446,7 @@ impl Service {
                 SubServiceType::Forwarder => {
                     if ss.ctl_tx.is_some() {
                         let cmd = SubServiceCtlCmd::DomainsUpdate(domains);
-                        match ss.ctl_tx.as_ref().unwrap().unbounded_send(cmd) {
+                        match ss.ctl_tx.as_ref().unwrap().send(cmd) {
                             Err(e) => {
                                 error!("[Service] send update domains to forwarder failed:{}", e);
                             }
@@ -477,7 +467,7 @@ impl Service {
                 SubServiceType::TunMgr => {
                     if ss.ctl_tx.is_some() {
                         let cmd = SubServiceCtlCmd::TunCfgUpdate(tuncfg.clone());
-                        match ss.ctl_tx.as_ref().unwrap().unbounded_send(cmd) {
+                        match ss.ctl_tx.as_ref().unwrap().send(cmd) {
                             Err(e) => {
                                 error!("[Service] send update domains to forwarder failed:{}", e);
                             }
@@ -511,49 +501,49 @@ impl Service {
         }
 
         let req = req.unwrap();
-        let fut = req
-            .exec(None)
-            .and_then(move |response| {
-                if response.status == 200 {
-                    if let Some(ref body) = response.body {
-                        info!(
-                            "[Service] upgrade: download file completed, len:{}, now try write to file",
-                            body.len()
-                        );
-
-                        // write to file
-                        let file = std::fs::File::create(&filepath);
-                        match file {
-                            Ok(mut f) => {
-                                let wr = f.write_all(body);
-                                match wr {
-                                    Err(e) => {
-                                        error!("[Service] upgrade: write to file failed:{}", e);
-                                    }
-                                    _ => {
-                                        // change file's permission
-                                        info!("[Service] upgrade: write to file ok, now chmod");
-                                        super::fileto_excecutable(filepath.to_str().unwrap());
-                                        // trigger restart bash script
-                                        super::call_bash_to_restart(scriptpath.to_str().unwrap());
+        let fut = async move {
+            match req.exec(None).await {
+                Ok(response) => {
+                    if response.status == 200 {
+                        if let Some(ref body) = response.body {
+                            info!(
+                                "[Service] upgrade: download file completed, len:{}, now try write to file",
+                                body.len()
+                            );
+    
+                            // write to file
+                            let file = File::create(&filepath);
+                            match file {
+                                Ok(mut f) => {
+                                    let wr = f.write_all(body);
+                                    match wr {
+                                        Err(e) => {
+                                            error!("[Service] upgrade: write to file failed:{}", e);
+                                        }
+                                        _ => {
+                                            // change file's permission
+                                            info!("[Service] upgrade: write to file ok, now chmod");
+                                            super::fileto_excecutable(filepath.to_str().unwrap());
+                                            // trigger restart bash script
+                                            super::call_bash_to_restart(scriptpath.to_str().unwrap());
+                                        }
                                     }
                                 }
-                            }
-                            Err(e) => {
-                                error!("[Service] upgrade: create file failed:{}", e);
+                                Err(e) => {
+                                    error!("[Service] upgrade: create file failed:{}", e);
+                                }
                             }
                         }
                     }
+    
+                    s.borrow_mut().is_upgrading = false;
                 }
-
-                s.borrow_mut().is_upgrading = false;
-                Ok(())
-            })
-            .or_else(move |e| {
-                error!("[Service]upgrade: http request failed, error:{}", e);
-                sclone.borrow_mut().is_upgrading = false;
-                Ok(())
-            });
+                Err(e) => {
+                    error!("[Service]upgrade: http request failed, error:{}", e);
+                    sclone.borrow_mut().is_upgrading = false;
+                }
+            }
+        };
 
         tokio::task::spawn_local(fut);
     }
@@ -598,22 +588,11 @@ impl Service {
         );
 
         // delay 5 seconds
-        let when = Instant::now() + Duration::from_millis(seconds * 1000);
-        let task = Delay::new(when)
-            .and_then(move |_| {
-                debug!("[Service]delay_post_instruction retry...");
-                s.borrow().fire_instruction(ins);
-
-                Ok(())
-            })
-            .map_err(|e| {
-                error!(
-                    "[Service]delay_post_instruction delay retry errored, err={:?}",
-                    e
-                );
-                ()
-            });
-
+        let task = async move {
+            tokio::time::delay_for(Duration::from_millis(seconds * 1000)).await;
+            debug!("[Service]delay_post_instruction retry...");
+            s.borrow().fire_instruction(ins);
+        };
         tokio::task::spawn_local(task);
     }
 
@@ -640,25 +619,25 @@ impl Service {
 
         let clone = s.clone();
         let clone2 = s.clone();
-        let fut = super::start_subservice(service_tx, cfg, domains)
-            .and_then(move |subservices| {
-                let s2 = &mut clone.borrow_mut();
-                let vec_subservices = &mut subservices.borrow_mut();
-                while let Some(ctl) = vec_subservices.pop() {
-                    s2.subservices.push(ctl);
+        let fut = async move {
+            match super::start_subservice(service_tx, cfg, domains).await {
+                Ok(subservices) => {
+                    let s2 = &mut clone.borrow_mut();
+                    let vec_subservices = &mut subservices.borrow_mut();
+                    while let Some(ctl) = vec_subservices.pop() {
+                        s2.subservices.push(ctl);
+                    }
+    
+                    s2.state = STATE_RUNNING;
+                    s2.config_sys();
+    
+                    Service::start_monitor_timer(s2, clone.clone());
+                },
+                Err(_) => {
+                    Service::delay_post_instruction(clone2, 5, Instruction::Auth);
                 }
-
-                s2.state = STATE_RUNNING;
-                s2.config_sys();
-
-                Service::start_monitor_timer(s2, clone.clone());
-                Ok(())
-            })
-            .or_else(|_| {
-                Service::delay_post_instruction(clone2, 5, Instruction::Auth);
-                Err(())
-            });
-
+            }
+        };
         tokio::task::spawn_local(fut);
 
         // enable uci dnsmasq forward server, point to this
@@ -703,7 +682,7 @@ impl Service {
         let tx = &self.ins_tx;
         match tx.as_ref() {
             Some(ref tx) => {
-                if let Err(e) = tx.unbounded_send(ins) {
+                if let Err(e) = tx.send(ins) {
                     error!("[Service]fire_instruction failed:{}", e);
                 }
             }
@@ -742,7 +721,7 @@ impl Service {
         self.save_monitor_trigger(trigger);
 
         // tokio timer, every 3 seconds
-        let task = Interval::new(Instant::now(), Duration::from_millis(CFG_MONITOR_INTERVAL))
+        let task = tokio::time::interval(Duration::from_millis(CFG_MONITOR_INTERVAL))
             .skip(1)
             .take_until(tripwire)
             .for_each(move |instant| {
@@ -751,15 +730,14 @@ impl Service {
                 let rf = s2.borrow_mut();
                 rf.fire_instruction(Instruction::ServerCfgMonitor);
 
-                Ok(())
-            })
-            .map_err(|e| error!("[Service]start_monitor_timer interval errored; err={:?}", e))
-            .then(|_| {
-                info!("[Service] monitor timer future completed");
-                Ok(())
+                future::ready(())
             });
-
-        tokio::task::spawn_local(task);
+            let t_fut = async move {
+                task.await;
+                info!("[Service] monitor timer future completed");
+                ()
+            };
+        tokio::task::spawn_local(t_fut);
     }
 
     fn fetch_all_macs() -> Vec<String> {

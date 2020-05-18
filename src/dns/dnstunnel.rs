@@ -107,8 +107,8 @@ impl DnsTunnel {
                             let content2 = &bs[6..];
                             let sockaddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::from(ip32)), port);
 
-                            tx.unbounded_send((bytes::Bytes::from(content2), sockaddr))
-                                .unwrap(); // udp send should not failed!
+                            tx.send((bytes::Bytes::from(content2.to_vec()), sockaddr))
+                                 .unwrap(); // udp send should not failed!
                         }
                     }
                     None => {}
@@ -140,7 +140,7 @@ impl DnsTunnel {
         bs.write_with::<u64>(offset, timestamp, LE).unwrap();
 
         let msg = WMessage::new(bs1, 0);
-        let r = self.tx.unbounded_send(msg);
+        let r = self.tx.send(msg);
         match r {
             Err(e) => {
                 error!("[DnsTunnel]tunnel send_ping error:{}", e);
@@ -166,7 +166,7 @@ impl DnsTunnel {
 
         let wmsg = WMessage::new(vec, 0);
         let tx = &self.tx;
-        let result = tx.unbounded_send(wmsg);
+        let result = tx.send(wmsg);
         match result {
             Err(e) => {
                 error!(
@@ -259,7 +259,7 @@ impl DnsTunnel {
 
         let wmsg = WMessage::new(buf, 0);
         let tx = &self.tx;
-        let result = tx.unbounded_send(wmsg);
+        let result = tx.send(wmsg);
         match result {
             Err(e) => {
                 error!(

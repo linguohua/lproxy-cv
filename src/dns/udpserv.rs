@@ -6,7 +6,6 @@ use std::net::SocketAddr;
 use std::result::Result;
 
 use tokio::net::{UdpSocket};
-use tokio::prelude::*;
 use futures_03::prelude::*;
 use stream_cancel::{Trigger, Tripwire};
 
@@ -30,13 +29,14 @@ impl UdpServer {
         }))
     }
 
-    pub async fn start(&mut self, fw: &Forwarder, forward: ForwarderType) -> Result<(), Error> {
+    pub fn start(&mut self, fw: &Forwarder, forward: ForwarderType) -> Result<(), Error> {
         let listen_addr = &self.listen_addr;
         let addr: SocketAddr = listen_addr.parse().map_err(|e| Error::from(e))?;
-        let a = UdpSocket::bind(&addr).await?;
+        let socket_udp = std::net::UdpSocket::bind(addr)?;
+        let a = UdpSocket::from_std(socket_udp)?;
 
-        let udpFramed = tokio_util::udp::UdpFramed::new(a, tokio_util::codec::BytesCodec::new());
-        let (a_sink, a_stream) = udpFramed.split();
+        let udp_framed = tokio_util::udp::UdpFramed::new(a, tokio_util::codec::BytesCodec::new());
+        let (a_sink, a_stream) = udp_framed.split();
 
         let forwarder1 = forward.clone();
         let forwarder2 = forward.clone();
@@ -48,24 +48,20 @@ impl UdpServer {
         fw.on_dns_udp_created(self, forward);
 
         // send future
-        let send_fut = a_sink.send_all(&mut rx.map(move |x|{
-            Ok(x)
-        }));
-
+        let send_fut = rx.map(move |x|{Ok(x)}).forward(a_sink);
         let receive_fut = a_stream
         .take_until(tripwire)
         .for_each(move |rr| {
-            let ex = match rr {
+            match rr {
                 Ok((message, addr)) => {
                     let rf = forwarder1.borrow();
                     // post to manager
                     if rf.on_dns_udp_msg(message, addr) {
-                        Ok(())
                     } else {
-                        Err(std::io::Error::from(std::io::ErrorKind::Other))
+                        error!("[UdpServer] on_dns_udp_msg failed")
                     }
                 },
-                Err(e) => Err(e)
+                Err(e) => error!("[UdpServer] for_each failed:{}", e)
             };
 
             future::ready(())

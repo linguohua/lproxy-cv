@@ -9,9 +9,9 @@ use std::cell::RefCell;
 use std::net::IpAddr;
 use std::rc::Rc;
 use std::result::Result;
-use std::time::{Duration, Instant};
-use stream_cancel::{StreamExt, Trigger, Tripwire};
-use tokio::time::Interval;
+use std::time::{Duration};
+use stream_cancel::{Trigger, Tripwire};
+use futures_03::prelude::*;
 
 type TunnelItem = Option<Rc<RefCell<Tunnel>>>;
 type LongLive = Rc<RefCell<TunMgr>>;
@@ -351,7 +351,7 @@ impl TunMgr {
         self.save_keepalive_trigger(trigger);
 
         // tokio timer, every 3 seconds
-        let task = Interval::new(Instant::now(), Duration::from_millis(KEEP_ALIVE_INTERVAL))
+        let task = tokio::time::interval(Duration::from_millis(KEEP_ALIVE_INTERVAL))
             .skip(1)
             .take_until(tripwire)
             .for_each(move |instant| {
@@ -360,25 +360,21 @@ impl TunMgr {
                 let mut rf = s2.borrow_mut();
                 rf.keepalive(s2.clone());
 
-                Ok(())
-            })
-            .map_err(|e| {
-                error!(
-                    "[TunMgr]start_keepalive_timer interval errored; err={:?}",
-                    e
-                )
-            })
-            .then(|_| {
-                info!("[TunMgr] keepalive timer future completed");
-                Ok(())
+                future::ready(())
             });
+            
+        let t_fut = async move {
+            task.await;
+            info!("[TunMgr] keepalive timer future completed");
+            ()
+        };
 
-        tokio::task::spawn_local(task);
+        tokio::task::spawn_local(t_fut);
     }
 
     pub fn log_access(&self, peer_addr: std::net::IpAddr , target_ip : std::net::IpAddr) {
         // send to service
-        if let Err(e) = self.service_tx.unbounded_send(Instruction::AccessLog(peer_addr, target_ip)){
+        if let Err(e) = self.service_tx.send(Instruction::AccessLog(peer_addr, target_ip)){
             error!("[TunMgr]log_access unbounded_send failed:{}", e);
         }
     }

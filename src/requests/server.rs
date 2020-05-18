@@ -7,9 +7,10 @@ use std::cell::RefCell;
 use std::os::unix::io::AsRawFd;
 use std::rc::Rc;
 use std::result::Result;
-use stream_cancel::{StreamExt, Trigger, Tripwire};
+use stream_cancel::{Trigger, Tripwire};
 use tokio;
 use tokio::net::TcpListener;
+use futures_03::prelude::*;
 
 type LongLive = Rc<RefCell<Server>>;
 
@@ -38,7 +39,8 @@ impl Server {
         let addr = &self.listen_addr;
         let addr_inet = addr.parse().map_err(|e| Error::from(e))?;
         let socket_addr = std::net::SocketAddr::new(addr_inet, self.listen_port);
-        let listener = TcpListener::bind(&socket_addr).map_err(|e| Error::from(e))?;
+        let socket_tcp = std::net::TcpListener::bind(socket_addr)?;
+        let mut listener = TcpListener::from_std(socket_tcp)?;
 
         let rawfd = listener.as_raw_fd();
         info!("[Server]listener rawfd:{}", rawfd);
@@ -49,20 +51,24 @@ impl Server {
         let (trigger, tripwire) = Tripwire::new();
         self.save_listener_trigger(trigger);
 
-        let server = listener
+        let server = async move { 
+            listener
             .incoming()
-            .map_err(|e| error!("[Server] accept failed = {:?}", e))
+            //.map_err(|e| error!("[Server] accept failed = {:?}", e))
             .take_until(tripwire)
             .for_each(move |sock| {
                 // service new socket
                 // let mgr = mgr.clone();
-                mgr.borrow_mut().on_accept_tcpstream(sock);
-                Ok(())
-            })
-            .then(|_| {
-                info!("[Server]listening future completed");
-                Ok(())
-            });
+                match sock {
+                    Ok(s) => mgr.borrow_mut().on_accept_tcpstream(s),
+                    Err(e) => error!("[Server] accept failed = {:?}", e),
+                }
+                
+                future::ready(())
+            }).await;
+            
+            info!("[Server]listening future completed");
+        };
 
         // Start the Tokio runtime
         tokio::task::spawn_local(server);

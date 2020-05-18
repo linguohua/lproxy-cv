@@ -10,10 +10,10 @@ use std::cell::RefCell;
 use std::os::unix::io::AsRawFd;
 use std::rc::Rc;
 use std::time::Duration;
-use stream_cancel::{StreamExt, Tripwire};
+use stream_cancel::{Tripwire};
 use tokio;
-use tokio::prelude::*;
 use tokio::net::TcpStream;
+use futures_03::prelude::*;
 
 pub fn serve_sock(socket: TcpStream, mgr: Rc<RefCell<TunMgr>>) {
     // config tcp stream
@@ -46,10 +46,10 @@ pub fn serve_sock(socket: TcpStream, mgr: Rc<RefCell<TunMgr>>) {
         mgr.borrow().log_access(peer_addr.ip(), ip.to_std())
     }
 
-    // set 2 seconds write-timeout
-    let mut socket = TimeoutStream::new(socket);
-    let wduration = Duration::new(2, 0);
-    socket.set_write_timeout(Some(wduration));
+    // set 2 seconds write-timeout TODO:
+    // let mut socket = TimeoutStream::new(socket);
+    // let wduration = Duration::new(2, 0);
+    // socket.set_write_timeout(Some(wduration));
 
     let framed = TcpFramed::new(socket);
     let (sink, stream) = framed.split();
@@ -89,12 +89,15 @@ pub fn serve_sock(socket: TcpStream, mgr: Rc<RefCell<TunMgr>>) {
     });
 
     // send future
-    let send_fut = sink.send_all(rx.map_err(|e| {
-        error!("[ReqServ]sink send_all failed:{:?}", e);
-        std::io::Error::from(std::io::ErrorKind::Other)
-    }));
+    let send_fut = rx.map(move |x|{Ok(x)}).forward(sink);
 
-    let send_fut = send_fut.and_then(move |_| {
+    let send_fut = async move {
+        match send_fut.await {
+            Err(e) => {
+                error!("[ReqServ]send_fut error:{}", e);
+            }
+            _ => {}
+        }
         info!(
             "[ReqServ]send_fut end, req_idx:{}, req_tag:{}",
             req_idx, req_tag
@@ -104,11 +107,11 @@ pub fn serve_sock(socket: TcpStream, mgr: Rc<RefCell<TunMgr>>) {
             error!("[ReqServ]shutdown rawfd error:{}", e);
         }
 
-        Ok(())
-    });
+        ()
+    };
 
     let tunstub1 = tunstub.clone();
-
+    let tunstub2 = tunstub1.clone();
     // when peer send finished(FIN), then for-each(recv) future end
     // and wait rx(send) futue end, when the server indicate that
     // no more data, rx's pair tx will be drop, then mpsc end, rx
@@ -117,36 +120,42 @@ pub fn serve_sock(socket: TcpStream, mgr: Rc<RefCell<TunMgr>>) {
     let receive_fut = stream.take_until(tripwire).for_each(move |message| {
         let ts = &tunstub.borrow();
         // post to manager
-        if on_request_msg(message, ts) {
-            Ok(())
-        } else {
-            Err(std::io::Error::from(std::io::ErrorKind::NotConnected))
+        match message {
+            Ok(m) => {
+                if !on_request_msg(m, ts) {
+                    error!("[ReqServ] on_request_msg failed")
+                }
+            }
+            Err(e) => {
+                error!("[ReqServ] on_request_msg failed:{}", e)
+            }
         }
+
+        future::ready(())
     });
 
-    let tunstub2 = tunstub1.clone();
-    let receive_fut = receive_fut.and_then(move |_| {
+    let receive_fut = async move {
+        receive_fut.await;
         // client(of request) send finished(FIN), indicate that
         // no more data to send
         let ts = &tunstub1.borrow();
         on_request_recv_finished(ts);
 
-        Ok(())
-    });
+        ()
+    };
+
+    let join_fut = async move {
+        future::join(send_fut, receive_fut).await;
+        let ts = &tunstub2.borrow();
+        info!("[ReqServ] tcp both futures completed:{:?}", ts);
+        mgr.borrow_mut().on_request_closed(ts);
+
+        ()
+    };
 
     // Wait for both futures to complete.
-    let receive_fut = receive_fut
-        .map_err(|_| ())
-        .join(send_fut.map_err(|_| ()))
-        .then(move |_| {
-            let ts = &tunstub2.borrow();
-            info!("[ReqServ] tcp both futures completed:{:?}", ts);
-            mgr.borrow_mut().on_request_closed(ts);
-
-            Ok(())
-        });
-
-    tokio::task::spawn_local(receive_fut);
+    
+    tokio::task::spawn_local(join_fut);
 }
 
 fn on_request_msg(mut message: TMessage, tun: &TunStub) -> bool {
@@ -166,7 +175,7 @@ fn on_request_msg(mut message: TMessage, tun: &TunStub) -> bool {
     let wmsg = WMessage::new(message.buf.take().unwrap(), 0);
 
     let tx = &tun.tunnel_tx;
-    let result = tx.unbounded_send(wmsg);
+    let result = tx.send(wmsg);
     match result {
         Err(e) => {
             error!("[ReqServ]request tun send error:{}, tun_tx maybe closed", e);
@@ -201,7 +210,7 @@ fn on_request_recv_finished(tun: &TunStub) {
 
     let wmsg = WMessage::new(buf, 0);
     let tx = &tun.tunnel_tx;
-    let result = tx.unbounded_send(wmsg);
+    let result = tx.send(wmsg);
 
     match result {
         Err(e) => {
@@ -236,7 +245,7 @@ fn send_request_quota(tun: &TunStub, qutoa: u16) {
 
     let tx = &tun.tunnel_tx;
     // send to peer, should always succeed
-    if let Err(e) = tx.unbounded_send(wmsg) {
+    if let Err(e) = tx.send(wmsg) {
         error!(
             "[ReqServ]send_request_closed_to_server tx send failed:{}",
             e

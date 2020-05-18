@@ -107,16 +107,17 @@ impl Future for MyDns {
     type Output = std::result::Result<IpAddr, Error>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let self_mut = self.get_mut();
         loop {
-            match self.state {
+            match self_mut.state {
                 MyDnsState::Init => {
-                    if self.proc_rawip() {
-                        self.state = MyDnsState::Done;
-                        info!("[mydns] domain:{} is raw ip", self.domain);
+                    if self_mut.proc_rawip() {
+                        self_mut.state = MyDnsState::Done;
+                        info!("[mydns] domain:{} is raw ip", self_mut.domain);
                     } else {
                         // send to udp socket
-                        self.prepare_query()?;
-                        self.state = MyDnsState::Send;
+                        self_mut.prepare_query()?;
+                        self_mut.state = MyDnsState::Send;
                     }
                 }
                 MyDnsState::Send => {
@@ -125,9 +126,9 @@ impl Future for MyDns {
                         .parse()
                         .map_err(|_| Error::new(ErrorKind::Other, "target addr parse error"))?;
 
-                    let a = self.udp.as_mut().unwrap(); // should not failed
-                    let len = self.send_len;
-                    let buf = self.send_buf.as_mut().unwrap(); // should not failed
+                    let a = self_mut.udp.as_mut().unwrap(); // should not failed
+                    let len = self_mut.send_len;
+                    let buf = self_mut.send_buf.as_mut().unwrap(); // should not failed
                     let nr = a.poll_send_to(cx, &buf[0..len], &target_addr)?;
                     match nr {
                         Poll::Ready(n) => {
@@ -140,22 +141,22 @@ impl Future for MyDns {
                         }
                     }
 
-                    self.state = MyDnsState::Recv;
+                    self_mut.state = MyDnsState::Recv;
                 }
                 MyDnsState::Recv => {
                     // recv from udpsocket
-                    let a = self.udp.as_mut().unwrap(); // should not failed
+                    let a = self_mut.udp.as_mut().unwrap(); // should not failed
                     let mut rspbuff = vec![0 as u8; 512];
                     let result = a.poll_recv_from(cx, &mut rspbuff[..])?;
                     match result {
                         Poll::Ready((n, _)) => {
                             // parse result
-                            self.parse_result(&mut rspbuff[..n])?;
+                            self_mut.parse_result(&mut rspbuff[..n])?;
                             info!(
                                 "[mydns] domain:{} resolved to:{:?}",
-                                self.domain, self.result
+                                self_mut.domain, self_mut.result
                             );
-                            self.state = MyDnsState::Done;
+                            self_mut.state = MyDnsState::Done;
                         }
                         Poll::Pending => {
                             return Poll::Pending;
@@ -164,10 +165,10 @@ impl Future for MyDns {
                 }
                 MyDnsState::Done => {
                     // discard
-                    self.send_buf = None;
-                    self.udp = None;
+                    self_mut.send_buf = None;
+                    self_mut.udp = None;
 
-                    return Poll::Ready(Ok(self.result.take().unwrap()));
+                    return Poll::Ready(Ok(self_mut.result.take().unwrap()));
                 }
             }
         }

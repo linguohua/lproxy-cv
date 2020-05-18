@@ -11,11 +11,10 @@ use std::os::unix::io::RawFd;
 use std::rc::Rc;
 use std::time::Duration;
 use tokio;
-use tokio::prelude::*;
 use url;
 
 pub fn connect(tm: &TunMgr, mgr2: Rc<RefCell<TunMgr>>, index: usize) {
-    let relay_domain = &tm.relay_domain;
+    let relay_domain = tm.relay_domain.to_string();
     let relay_port = tm.relay_port;
     let ws_url = &tm.url;
     let tunnel_req_cap = tm.tunnel_req_cap;
@@ -29,83 +28,79 @@ pub fn connect(tm: &TunMgr, mgr2: Rc<RefCell<TunMgr>>, index: usize) {
     let url = url::Url::parse(&ws_url).unwrap();
 
     let mgr1 = mgr2.clone();
-    let mgr3 = mgr2.clone();
-    let mgr4 = mgr2.clone();
 
     info!(
         "[tunbuilder]WebSocket connect to:{}, port:{}",
         relay_domain, relay_port
     );
 
-    // TODO: need to specify address and port
-    let client = ws_connect_async(relay_domain, relay_port, url)
-        .and_then(move |(framed, rawfd)| {
-            debug!("[tunbuilder]WebSocket handshake has been successfully completed");
-            // let inner = ws_stream.get_inner().get_ref();
+    let f_fut = async move {
+        // TODO: need to specify address and port
+        let (framed, rawfd) = match ws_connect_async(&relay_domain, relay_port, url).await {
+            Ok((f, r)) => (f,r),
+            Err(e) => {
+                error!("[tunbuilder]ws_connect_async failed:{}", e);
+                let mut rf = mgr2.borrow_mut();
+                rf.on_tunnel_build_error(index);
+                return;
+            }
+        };
 
-            // Create a channel for our stream, which other sockets will use to
-            // send us messages. Then register our address with the stream to send
-            // data to us.
-            let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
-            let t = Rc::new(RefCell::new(Tunnel::new(
-                tx,
-                rawfd,
-                index,
-                tunnel_req_cap,
-                request_quota,
-            )));
-            let mut rf = mgr1.borrow_mut();
-            if let Err(_) = rf.on_tunnel_created(t.clone()) {
-                // TODO: should return directly
-                if let Err(e) = shutdown(rawfd, Shutdown::Both) {
-                    error!("[tunbuilder]shutdown rawfd failed:{}", e);
+        debug!("[tunbuilder]WebSocket handshake has been successfully completed");
+        // let inner = ws_stream.get_inner().get_ref();
+
+        // Create a channel for our stream, which other sockets will use to
+        // send us messages. Then register our address with the stream to send
+        // data to us.
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        let t = Rc::new(RefCell::new(Tunnel::new(
+            tx,
+            rawfd,
+            index,
+            tunnel_req_cap,
+            request_quota,
+        )));
+
+        let mut rf = mgr1.borrow_mut();
+        if let Err(_) = rf.on_tunnel_created(t.clone()) {
+            // TODO: should return directly
+            if let Err(e) = shutdown(rawfd, Shutdown::Both) {
+                error!("[tunbuilder]shutdown rawfd failed:{}", e);
+            }
+            return;
+        }
+
+        // `sink` is the stream of messages going out.
+        // `stream` is the stream of incoming messages.
+        let (sink, stream) = framed.split();
+
+        let receive_fut = stream.for_each(move |message| {
+            debug!("[tunbuilder]tunnel read a message");
+            // post to manager
+            match message {
+                Ok(m) => {
+                    let mut clone = t.borrow_mut();
+                    clone.on_tunnel_msg(m);
+                }
+                Err(e) => {
+                    error!("[tunbuilder]tunnel read a message error {}", e);
                 }
             }
 
-            // `sink` is the stream of messages going out.
-            // `stream` is the stream of incoming messages.
-            let (sink, stream) = framed.split();
-
-            let receive_fut = stream.for_each(move |message| {
-                debug!("[tunbuilder]tunnel read a message");
-                // post to manager
-                let mut clone = t.borrow_mut();
-                clone.on_tunnel_msg(message);
-
-                Ok(())
-            });
-
-            let rx = rx.map_err(|_| {
-                std::io::Error::new(std::io::ErrorKind::Other, "[tunbuilder] rx-shit")
-            });
-
-            let send_fut = rx.forward(sink);
-
-            // Wait for either of futures to complete.
-            receive_fut
-                .map(|_| ())
-                .map_err(|_| ())
-                .select(send_fut.map(|_| ()).map_err(|_| ()))
-                .then(move |_| {
-                    info!("[tunbuilder] both websocket futures completed");
-                    let mut rf = mgr3.borrow_mut();
-                    rf.on_tunnel_closed(index);
-                    Ok(())
-                })
-            // ok(index)
-        })
-        .map_err(move |e| {
-            error!(
-                "[tunbuilder]Error during the websocket handshake occurred: {}",
-                e
-            );
-            let mut rf = mgr4.borrow_mut();
-            rf.on_tunnel_build_error(index);
-
-            ()
+            future::ready(())
         });
 
-    tokio::task::spawn_local(client);
+        let send_fut = rx.map(move |x|{Ok(x)}).forward(sink);
+
+        // Wait for either of futures to complete.
+        future::select(receive_fut, send_fut).await;
+        info!("[tunbuilder] both websocket futures completed");
+        let mut rf = mgr1.borrow_mut();
+        rf.on_tunnel_closed(index);
+        ()
+    };
+ 
+    tokio::task::spawn_local(f_fut);
 }
 
 pub type FrameType = lws::LwsFramed<tokio_tls::TlsStream<tokio::net::TcpStream>>;
@@ -140,23 +135,21 @@ pub async fn ws_connect_async(
             let addr = std::net::SocketAddr::new(ipaddr, relay_port);
             let socket = tokio::net::TcpStream::connect(&addr).await?;
             let rawfd = socket.as_raw_fd();
-            let socket = cx.connect(&host_str, socket).await?;
+            let socket = cx.connect(&host_str, socket).await;
+            let socket = match socket {
+                Ok(s) => s,
+                Err(e) => {
+                    error!("[tunbuilder] tls error {}", e);
+                    return Err(std::io::Error::new(std::io::ErrorKind::NotConnected, e));
+                }
+            };
+
             let (lsocket,tail) = lws::do_client_hanshake(socket, &host_str, &path).await?;
             let framed = lws::LwsFramed::new(lsocket, tail);
             Ok((framed, rawfd))
     };
 
-    let fut = net_fut
-        .timeout(Duration::from_millis(10 * 1000)) // 10 seconds
-        .map_err(|err| {
-            if err.is_elapsed() {
-                std::io::Error::from(std::io::ErrorKind::TimedOut)
-            } else if let Some(inner) = err.into_inner() {
-                inner
-            } else {
-                std::io::Error::new(std::io::ErrorKind::Other, "timeout error")
-            }
-        });
-
-    fut
+    let fut = tokio::time::timeout(Duration::from_millis(10 * 1000), net_fut);// 10 seconds
+ 
+    fut.await?
 }

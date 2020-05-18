@@ -42,7 +42,3 @@ base64 = "0.10.1"
 #iptables = "0.2.2"
 mac_address = "1.0.3"
 protobuf = "2.14.0"
-
-[dependencies.signal-hook]
-version = "0.1.10"
-features = ["mio-support", "tokio-support"]

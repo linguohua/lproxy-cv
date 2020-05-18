@@ -104,7 +104,7 @@ impl Tunnel {
                         // );
                         let wmsg =
                             WMessage::new(msg.buf.take().unwrap(), (3 + THEADER_SIZE) as u16);
-                        let result = tx.unbounded_send(wmsg);
+                        let result = tx.send(wmsg);
                         match result {
                             Err(e) => {
                                 info!(
@@ -155,7 +155,7 @@ impl Tunnel {
 
         let wmsg = WMessage::new(vec, 0);
         let tx = &self.tx;
-        let result = tx.unbounded_send(wmsg);
+        let result = tx.send(wmsg);
         match result {
             Err(e) => {
                 error!(
@@ -342,7 +342,7 @@ impl Tunnel {
         bs.write_with::<u64>(offset, timestamp, LE).unwrap();
 
         let msg = WMessage::new(bs1, 0);
-        let r = self.tx.unbounded_send(msg);
+        let r = self.tx.send(msg);
         match r {
             Err(e) => {
                 error!("[Tunnel]{} tunnel send_ping error:{}", self.index, e);
@@ -417,7 +417,7 @@ impl Tunnel {
         let wmsg = WMessage::new(buf, 0);
 
         // send to peer, should always succeed
-        if let Err(e) = ts.tunnel_tx.unbounded_send(wmsg) {
+        if let Err(e) = ts.tunnel_tx.send(wmsg) {
             error!(
                 "[Tunnel]{} send_request_created_to_server tx send failed:{}",
                 ts.tun_idx, e
@@ -448,7 +448,7 @@ impl Tunnel {
         let wmsg = WMessage::new(buf, 0);
 
         // send to peer, should always succeed
-        if let Err(e) = ts.tunnel_tx.unbounded_send(wmsg) {
+        if let Err(e) = ts.tunnel_tx.send(wmsg) {
             error!(
                 "[Tunnel]{} send_request_closed_to_server tx send failed:{}",
                 ts.tun_idx, e

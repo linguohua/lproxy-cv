@@ -14,10 +14,9 @@ use log::{debug, error, info};
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::result::Result;
-use std::time::{Duration, Instant};
-use stream_cancel::{StreamExt, Trigger, Tripwire};
-use tokio::prelude::*;
-use tokio::time::Interval;
+use std::time::{Duration};
+use stream_cancel::{Trigger, Tripwire};
+use futures_03::prelude::*;
 use crate::service::{DNSAddRecord, TxType, Instruction};
 
 type TunnelItem = Option<Rc<RefCell<DnsTunnel>>>;
@@ -410,7 +409,7 @@ impl Forwarder {
             }
         }
 
-        if let Err(e) = self.service_tx.unbounded_send(Instruction::DNSAdd(da)){
+        if let Err(e) = self.service_tx.send(Instruction::DNSAdd(da)){
             error!("[Forwarder]save_ipset unbounded_send failed:{}", e);
         }
     }
@@ -519,7 +518,7 @@ impl Forwarder {
         self.save_keepalive_trigger(trigger);
 
         // tokio timer, every 3 seconds
-        let task = Interval::new(Instant::now(), Duration::from_millis(KEEP_ALIVE_INTERVAL))
+        let task = tokio::time::interval(Duration::from_millis(KEEP_ALIVE_INTERVAL))
             .skip(1)
             .take_until(tripwire)
             .for_each(move |instant| {
@@ -528,19 +527,14 @@ impl Forwarder {
                 let mut rf = s2.borrow_mut();
                 rf.keepalive(s2.clone());
 
-                Ok(())
-            })
-            .map_err(|e| {
-                error!(
-                    "[Forwarder]start_keepalive_timer interval errored; err={:?}",
-                    e
-                )
-            })
-            .then(|_| {
-                info!("[Forwarder] keepalive timer future completed");
-                Ok(())
+                future::ready(())
             });
 
-        tokio::task::spawn_local(task);
+            let t_fut = async move {
+                task.await;
+                info!("[Forwarder] keepalive timer future completed");
+                ()
+            };
+        tokio::task::spawn_local(t_fut);
     }
 }

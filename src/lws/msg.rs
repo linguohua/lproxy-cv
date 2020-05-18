@@ -1,3 +1,4 @@
+use core::mem::MaybeUninit;
 use byte::*;
 use bytes::{Buf, BufMut};
 use std::slice;
@@ -24,11 +25,11 @@ impl RMessage {
         self.cached_legnth > 0 && self.cached_legnth == (vec.len() as u16)
     }
 
-    unsafe fn as_raw(&mut self) -> &mut [u8] {
-        let vec = self.buf.as_mut().unwrap();
-        let ptr = vec.as_mut_ptr();
-        &mut slice::from_raw_parts_mut(ptr, DEFAULT_CAP)[..]
-    }
+    // unsafe fn as_raw(&mut self) -> &mut [u8] {
+    //     let vec = self.buf.as_mut().unwrap();
+    //     let ptr = vec.as_mut_ptr();
+    //     &mut slice::from_raw_parts_mut(ptr, DEFAULT_CAP)[..]
+    // }
 }
 
 impl BufMut for RMessage {
@@ -66,14 +67,15 @@ impl BufMut for RMessage {
         }
     }
 
-    unsafe fn bytes_mut(&mut self) -> &mut [u8] {
+    fn bytes_mut(&mut self) -> &mut [MaybeUninit<u8>] {
         let len = self.remaining_mut();
         let vec = self.buf.as_mut().unwrap();
         let begin = vec.len();
-        let end = begin + len;
-
-        let x = self.as_raw();
-        &mut x[begin..end]
+        unsafe {
+            let ptr = vec.as_mut_ptr().offset(begin as isize);
+            //MaybeUninit::new(&mut x[begin..end])
+            slice::from_raw_parts_mut(ptr as *mut MaybeUninit<u8>, len)
+        }
     }
 }
 
@@ -127,11 +129,11 @@ impl TMessage {
         TMessage { buf: Some(buf) }
     }
 
-    unsafe fn as_raw(&mut self) -> &mut [u8] {
-        let vec = self.buf.as_mut().unwrap();
-        let ptr = vec.as_mut_ptr();
-        &mut slice::from_raw_parts_mut(ptr, DEFAULT_CAP)[..]
-    }
+    // unsafe fn as_raw(&mut self) -> &mut [u8] {
+    //     let vec = self.buf.as_mut().unwrap();
+    //     let ptr = vec.as_mut_ptr();
+    //     &mut slice::from_raw_parts_mut(ptr, DEFAULT_CAP)[..]
+    // }
 }
 
 impl BufMut for TMessage {
@@ -150,11 +152,14 @@ impl BufMut for TMessage {
         //println!("advance_mut, cnt:{}, vlen:{}", cnt, vec.len());
     }
 
-    unsafe fn bytes_mut(&mut self) -> &mut [u8] {
-        let vec = self.buf.as_ref().unwrap();
+    fn bytes_mut(&mut self) -> &mut [MaybeUninit<u8>] {
+        let len = self.remaining_mut();
+        let vec = self.buf.as_mut().unwrap();
         let begin = vec.len();
-
-        let x = self.as_raw();
-        &mut x[begin..]
+        unsafe {
+            let ptr = vec.as_mut_ptr().offset(begin as isize);
+            //MaybeUninit::new(&mut x[begin..end])
+            slice::from_raw_parts_mut(ptr as *mut MaybeUninit<u8>, len)
+        }
     }
 }

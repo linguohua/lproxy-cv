@@ -8,17 +8,15 @@ mod tunnels;
 mod xport;
 
 use fs2::FileExt;
-use futures_03::future::lazy;
 //use futures::stream::Stream;
 //se futures::Future;
 use log::{error, info};
 use service::Service;
-use signal_hook::iterator::Signals;
+use tokio::signal::unix::{signal, SignalKind};
 use std::env;
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::process;
-use tokio::prelude::*;
 use tokio::runtime;
 
 pub const PIDFILE: &'static str = "/var/run/lproxy-cv.pid";
@@ -122,29 +120,20 @@ fn main() {
     let mut basic_rt = runtime::Builder::new()
     .basic_scheduler()
     .enable_all()
-    .build()?;
+    .build().unwrap();
     // let handle = rt.handle();
     let local = tokio::task::LocalSet::new();
 
-    let l = lazy(move || {
+    let l = async move {
         let s = Service::new(uuid);
         s.borrow_mut().start(s.clone());
 
-        let wait_signal = Signals::new(&[signal_hook::SIGUSR1])
-            .unwrap()
-            .into_async()
-            .unwrap()
-            .into_future()
-            .map(move |sig| {
-                info!("got sigal:{:?}", sig.0);
-                // Service::stop
-                s.borrow_mut().stop();
-                ()
-            })
-            .map_err(|e| error!("{}", e.0));
-
-        wait_signal
-    });
+        let mut ss = signal(SignalKind::user_defined1()).unwrap();
+        let sig = ss.recv().await;
+        println!("got signal {:?}", sig);
+            // Service::stop
+        s.borrow_mut().stop();
+    };
 
     local.block_on(&mut basic_rt, l);
 

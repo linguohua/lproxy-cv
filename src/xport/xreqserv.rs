@@ -1,15 +1,13 @@
 use super::{LongLive, XTunnel};
 use crate::lws::{TcpFramed, WMessage};
-use futures_03::future::Future;
-use futures_03::sync::mpsc::{unbounded, UnboundedReceiver};
+use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
 use log::{error, info};
 use nix::sys::socket::{shutdown, Shutdown};
 use std::net::SocketAddr;
 use std::os::unix::io::AsRawFd;
 use std::time::Duration;
-use stream_cancel::{StreamExt, Tripwire};
-use tokio::prelude::*;
-use tokio::time::Timeout;
+use stream_cancel::{Tripwire};
+use futures_03::prelude::*;
 use tokio::net::TcpStream;
 
 pub fn proxy_request(
@@ -19,7 +17,7 @@ pub fn proxy_request(
     req_tag: u16,
     port: u16,
 ) -> bool {
-    let (tx, rx) = unbounded();
+    let (tx, rx) = unbounded_channel();
     let (trigger, tripwire) = Tripwire::new();
     if let Err(_) = xtun.save_request_tx(tx, trigger, req_idx, req_tag) {
         error!("[XPort]save_request_tx failed");
@@ -31,18 +29,24 @@ pub fn proxy_request(
     info!("[XPort] proxy request to ip:{:?}", sockaddr);
 
     let tl0 = ll.clone();
-    let fut = TcpStream::connect(&sockaddr).and_then(move |socket| {
-        proxy_request_internal(socket, rx, tripwire, ll, req_idx, req_tag);
+    let fut = async move { 
+        let ff = TcpStream::connect(&sockaddr);
 
-        Ok(())
-    });
-
-    let fut = Timeout::new(fut, Duration::from_secs(5)).map_err(move |e| {
-        error!("[XPort] tcp connect failed:{}", e);
-        let mut tun = tl0.borrow_mut();
-        tun.on_request_connect_error(req_idx, req_tag);
-        ()
-    });
+        let fut = tokio::time::timeout(Duration::from_millis(5 * 1000), ff);// 10 seconds
+        match fut.await {
+            Err(e)=> {
+                error!("[XPort] tcp connect failed:{}", e);
+                let mut tun = tl0.borrow_mut();
+                tun.on_request_connect_error(req_idx, req_tag);
+            }
+            Ok(s) => {
+                match s {
+                    Ok(s1) => proxy_request_internal(s1, rx, tripwire, ll, req_idx, req_tag),
+                    Err(e1) => error!("[XPort] tcp connect failed:{}", e1),
+                }
+            }
+        }
+    };
 
     tokio::task::spawn_local(fut);
     true
@@ -71,57 +75,62 @@ fn proxy_request_internal(
     let tl4 = tl.clone();
 
     // send future
-    let send_fut = sink.send_all(rx.map_err(|e| {
-        error!("[XPort]sink send_all failed:{:?}", e);
-        std::io::Error::from(std::io::ErrorKind::Other)
-    }));
+    let send_fut = rx.map(move |x|{Ok(x)}).forward(sink);
 
-    let send_fut = send_fut.and_then(move |_| {
+    let send_fut = async move {
+        match send_fut.await {
+            Err(e) => {
+                error!("[XPort]send_fut error:{}", e);
+            }
+            _ => {}
+        }
+    
         info!("[XPort]send_fut end, index:{}", req_idx);
         // shutdown read direction
         if let Err(e) = shutdown(rawfd, Shutdown::Read) {
             error!("[XPort]shutdown rawfd error:{}", e);
         }
 
-        Ok(())
-    });
+        ()
+    };
 
     let receive_fut = stream.take_until(tripwire).for_each(move |message| {
-        let mut tun_b = tl2.borrow_mut();
-        // post to manager
-        if !tun_b.on_request_msg(message, req_idx, req_tag) {
-            return Err(std::io::Error::from(std::io::ErrorKind::Other));
+        match message {
+            Ok(m) => {
+                let mut tun_b = tl2.borrow_mut();
+                // post to manager
+                if !tun_b.on_request_msg(m, req_idx, req_tag) {
+                    // return Err(std::io::Error::from(std::io::ErrorKind::Other));
+                    info!("[XPort]on_request_msg failed, index:{}", req_idx);
+                }
+            }
+            Err(e) => {
+                info!("[XPort]stream for_each faield, index:{}, {}", req_idx, e);
+            }
         }
 
-        Ok(())
+
+        future::ready(())
     });
 
-    let receive_fut = receive_fut.and_then(move |_| {
+    let receive_fut = async move { 
+        receive_fut.await;
+
         let mut tun_b = tl3.borrow_mut();
         // client(of request) send finished(FIN), indicate that
         // no more data to send
         tun_b.on_request_recv_finished(req_idx, req_tag);
-
-        Ok(())
-    });
+    };
 
     // Wait for both futures to complete.
-    let receive_fut = receive_fut
-        .map_err(|err| {
-            error!("[XPort] tcp receive_fut error:{}", err);
-            ()
-        })
-        .join(send_fut.map_err(|err| {
-            error!("[XPort] tcp send_fut error:{}", err);
-            ()
-        }))
-        .then(move |_| {
+    let join_fut = async move {
+            future::join(send_fut, receive_fut).await;
             info!("[XPort] tcp both futures completed");
             let mut tun = tl4.borrow_mut();
             tun.on_request_closed(req_idx, req_tag);
 
-            Ok(())
-        });
+            ()
+        };
 
-    tokio::task::spawn_local(receive_fut);
+    tokio::task::spawn_local(join_fut);
 }

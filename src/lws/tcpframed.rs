@@ -2,7 +2,6 @@ use super::{TMessage, WMessage};
 use futures_03::prelude::*;
 use std::io::Error;
 use tokio::io::{AsyncRead, AsyncWrite};
-use tokio::prelude::*;
 use std::pin::Pin;
 use futures_03::task::{Context, Poll};
 use futures_03::ready;
@@ -33,23 +32,25 @@ where
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
     ) -> Poll<Option<Self::Item>> {
+        let self_mut = self.get_mut();
         loop {
             //self.inner.poll()
-            if self.reading.is_none() {
-                self.reading = Some(TMessage::new());
+            if self_mut.reading.is_none() {
+                self_mut.reading = Some(TMessage::new());
             }
 
-            let reading = &mut self.reading;
+            let reading = &mut self_mut.reading;
             let msg = reading.as_mut().unwrap();
 
             // read from io
-            let pin_io = Pin::new(&mut self.io);
+            let mut io = &mut self_mut.io;
+            let pin_io = Pin::new(&mut io);
             let n = ready!(pin_io.poll_read_buf(cx, msg))?;
             if n == 0 {
                 return Poll::Ready(None);
             }
 
-            return Poll::Ready(Some(Ok(self.reading.take().unwrap())));
+            return Poll::Ready(Some(Ok(self_mut.reading.take().unwrap())));
         }
     }
 }
@@ -72,24 +73,29 @@ where
     }
 
     fn start_send(self: Pin<&mut Self>, item: WMessage) -> Result<(), Self::Error> {
-        self.writing = Some(item);
+        let self_mut = self.get_mut();
+        self_mut.writing = Some(item);
         Ok(())
     }
 
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        let pin_io = Pin::new(&mut self.io);
-        if self.writing.is_some() {
-            let writing = self.writing.as_mut().unwrap();
+        let self_mut = self.get_mut();
+        if self_mut.writing.is_some() {
+            let writing = self_mut.writing.as_mut().unwrap();
             loop {
+                let mut io = &mut self_mut.io;
+                let pin_io = Pin::new(&mut io);
                 ready!(pin_io.poll_write_buf(cx,writing))?;
 
                 if writing.is_completed() {
-                    self.writing = None;
+                    self_mut.writing = None;
                     break;
                 }
             }
         }
-
+        
+        let mut io = &mut self_mut.io;
+        let pin_io = Pin::new(&mut io);
         // Try flushing the underlying IO
         ready!(pin_io.poll_flush(cx))?;
 

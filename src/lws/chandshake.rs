@@ -2,7 +2,6 @@ use bytes::{BufMut, BytesMut};
 use futures_03::prelude::*;
 use futures_03::ready;
 use std::io::Error;
-use tokio::prelude::*;
 use std::pin::Pin;
 use futures_03::task::{Context, Poll};
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -53,13 +52,14 @@ pub fn do_client_hanshake<T>(io: T, host: &str, pth: &str) -> CHandshake<T> {
     }
 }
 
+use bytes::buf::Buf;
 impl<T> CHandshake<T> {
     pub fn parse_response(&mut self) -> bool {
         let needle = b"\r\n\r\n";
         let bm = &mut self.read_buf;
         if let Some(pos) = bm.windows(4).position(|window| window == needle) {
             let pos2 = pos + 4;
-            bm.split_to(pos2);
+            bm.advance(pos2);
 
             return true;
         }
@@ -75,21 +75,23 @@ where
     type Output = std::result::Result<(T, Option<Vec<u8>>), Error>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output>{
+        let self_mut = self.get_mut();
         loop {
-            match self.state {
+            match self_mut.state {
                 CHState::WritingHeader => {
                     // write out 
                     // let io = self.io.as_mut().unwrap();
-                    let pin_io = Pin::new(&mut self.io.as_mut().unwrap());
-                    ready!(pin_io.poll_write_buf(cx, &mut self.wmsg))?;
+                    let mut io = self_mut.io.as_mut().unwrap();
+                    let pin_io = Pin::new(&mut io);
+                    ready!(pin_io.poll_write_buf(cx, &mut self_mut.wmsg))?;
 
-                    if self.wmsg.is_completed() {
-                        self.state = CHState::ReadingResponse;
+                    if self_mut.wmsg.is_completed() {
+                        self_mut.state = CHState::ReadingResponse;
                     }
                 }
                 CHState::ReadingResponse => {
                     // read in
-                    let bm = &mut self.read_buf;
+                    let bm = &mut self_mut.read_buf;
                     if !bm.has_remaining_mut() {
                         // error, head too large
                         return Poll::Ready(Err(std::io::Error::new(
@@ -98,7 +100,8 @@ where
                         )));
                     }
 
-                    let pin_io = Pin::new(&mut self.io.as_mut().unwrap());
+                    let mut io = self_mut.io.as_mut().unwrap();
+                    let pin_io = Pin::new(&mut io);
                     let n = ready!(pin_io.poll_read_buf(cx, bm))?;
                     if n == 0 {
                         return Poll::Ready(Err(std::io::Error::new(
@@ -107,18 +110,18 @@ where
                         )));
                     }
 
-                    if self.parse_response() {
+                    if self_mut.parse_response() {
                         // completed
-                        self.state = CHState::Done;
+                        self_mut.state = CHState::Done;
                     } else {
                         // continue loop
                     }
                 }
                 CHState::Done => {
-                    let io = self.io.take().unwrap();
+                    let io = self_mut.io.take().unwrap();
                     let vv;
-                    if self.read_buf.len() > 0 {
-                        vv = Some(self.read_buf.to_vec());
+                    if self_mut.read_buf.len() > 0 {
+                        vv = Some(self_mut.read_buf.to_vec());
                     } else {
                         vv = None;
                     }

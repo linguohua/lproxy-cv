@@ -1,11 +1,7 @@
 use crate::dns;
 use failure::Error;
-use futures_03::future::Either;
-use futures_03::Future;
 use native_tls::TlsConnector;
-use std::io;
 use std::time::Duration;
-use tokio::prelude::*;
 use url::Url;
 
 #[derive(Debug)]
@@ -58,43 +54,26 @@ impl HTTPRequest {
         }
 
         let head_str = self.to_http_header(content_size);
-        let fut = dns::MyDns::new(host.to_string());
-        let fut = fut.and_then(move |ipaddr| {
+        
+        let fut = async move {
+            let ipaddr = dns::MyDns::new(host.to_string()).await?;
             let addr = std::net::SocketAddr::new(ipaddr, port);
-            tokio::net::TcpStream::connect(&addr)
-        });
-
-        let fut = fut.map_err(|e| e.into()).and_then(move |socket| {
+            let mut socket = tokio::net::TcpStream::connect(&addr).await?;
             let vec;
             if let Some(s) = body {
                 vec = Vec::from([head_str.as_bytes(), &s[..]].concat());
             } else {
                 vec = Vec::from(head_str.as_bytes());
             }
+            tokio::io::AsyncWriteExt::write_all(&mut socket, &vec).await?;
+            let mut vv = Vec::new();
+            tokio::io::AsyncReadExt::read_to_end(&mut socket, &mut vv).await?;
+            let resp = HTTPResponse::parse(&vv);
+            Ok(resp)
+        };
 
-            let request = tokio::io::AsyncWriteExt::write_all(socket, &vec);
-            let response =
-                request.and_then(|(socket, _)| tokio::io::AsyncReadExt::read_to_end(socket, Vec::new()));
-
-            let response = response
-                .and_then(|arg| {
-                    let resp = HTTPResponse::parse(&arg.1);
-                    Ok(resp)
-                })
-                .map_err(|e| Error::from(e));
-
-            response
-        });
-
-        fut.timeout(self.timeout).map_err(|err| {
-            if err.is_elapsed() {
-                failure::err_msg("request timeout")
-            } else if let Some(inner) = err.into_inner() {
-                inner
-            } else {
-                failure::err_msg("timer error")
-            }
-        })
+        let fut = tokio::time::timeout(self.timeout, fut);// 
+        fut.await?
     }
 
     async fn https_exec(&self, body: Option<Vec<u8>>) -> Result<HTTPResponse, Error> {
@@ -114,49 +93,28 @@ impl HTTPRequest {
         let cx = tokio_tls::TlsConnector::from(cx);
         let host_str = host.to_string();
 
-        let fut = dns::MyDns::new(host.to_string());
-        let fut = fut.and_then(move |ipaddr| {
+        let fut = async move {
+            let ipaddr = dns::MyDns::new(host.to_string()).await?;
             let addr = std::net::SocketAddr::new(ipaddr, port);
-            tokio::net::TcpStream::connect(&addr)
-        });
-
-        let fut = fut.map_err(|e| e.into()).and_then(move |socket| {
-            let tls_handshake = cx
-                .connect(&host_str, socket)
-                .map_err(|e| io::Error::new(io::ErrorKind::Other, e));
-
-            let request = tls_handshake.and_then(move |socket| {
-                let vec;
-                if let Some(s) = body {
-                    vec = Vec::from([head_str.as_bytes(), &s[..]].concat());
-                } else {
-                    vec = Vec::from(head_str.as_bytes());
-                }
-                tokio::io::AsyncWriteExt::write_all(socket, &vec)
-            });
-
-            let response =
-                request.and_then(|(socket, _)| tokio::io::AsyncReadExt::read_to_end(socket, Vec::new()));
-
-            let response = response
-                .and_then(|arg| {
-                    let resp = HTTPResponse::parse(&arg.1);
-                    Ok(resp)
-                })
-                .map_err(|e| Error::from(e));
-
-            response
-        });
-
-        fut.timeout(self.timeout).map_err(|err| {
-            if err.is_elapsed() {
-                failure::err_msg("request timeout")
-            } else if let Some(inner) = err.into_inner() {
-                inner
+            let socket = tokio::net::TcpStream::connect(&addr).await?;
+            let mut socket = cx.connect(&host_str, socket).await?;
+            let vec;
+            if let Some(s) = body {
+                vec = Vec::from([head_str.as_bytes(), &s[..]].concat());
             } else {
-                failure::err_msg("timer error")
+                vec = Vec::from(head_str.as_bytes());
             }
-        })
+ 
+            tokio::io::AsyncWriteExt::write_all(&mut socket, &vec).await?;
+
+            let mut vv = Vec::new();
+            tokio::io::AsyncReadExt::read_to_end(&mut socket, &mut vv).await?;
+            let resp = HTTPResponse::parse(&vv);
+            Ok(resp)
+        };
+
+        let fut = tokio::time::timeout(self.timeout, fut);// 
+        fut.await?
     }
 
     fn is_secure(&self) -> bool {

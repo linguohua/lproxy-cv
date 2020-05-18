@@ -7,7 +7,6 @@ use std::net::SocketAddr;
 use std::rc::Rc;
 
 use tokio::net::{UdpSocket};
-use tokio::prelude::*;
 use futures_03::prelude::*;
 use stream_cancel::{Trigger, Tripwire};
 use tokio::sync::mpsc;
@@ -37,13 +36,14 @@ impl LocalResolver {
         }))
     }
 
-    pub async fn start(&mut self, fw: &Forwarder, forward: Rc<RefCell<Forwarder>>) -> Result<(), Error> {
+    pub fn start(&mut self, fw: &Forwarder, forward: Rc<RefCell<Forwarder>>) -> Result<(), Error> {
         let listen_addr = &self.listen_addr;
         let addr: SocketAddr = listen_addr.parse().map_err(|e| Error::from(e))?;
-        let a = UdpSocket::bind(&addr).await?;
+        let socket_udp = std::net::UdpSocket::bind(addr)?;
+        let a = UdpSocket::from_std(socket_udp)?;
 
-        let udpFramed = tokio_util::udp::UdpFramed::new(a, tokio_util::codec::BytesCodec::new());
-        let (a_sink, a_stream) = udpFramed.split();
+        let udp_framed = tokio_util::udp::UdpFramed::new(a, tokio_util::codec::BytesCodec::new());
+        let (a_sink, a_stream) = udp_framed.split();
 
         let forwarder1 = forward.clone();
         let forwarder2 = forward.clone();
@@ -54,25 +54,21 @@ impl LocalResolver {
         self.set_tx(tx, trigger);
         fw.on_lresolver_udp_created(self, forward);
 
-        // send future
-        let send_fut = a_sink.send_all(&mut rx.map(move |x|{
-            Ok(x)
-        }));
+        let send_fut = rx.map(move |x|{Ok(x)}).forward(a_sink);
 
         let receive_fut = a_stream
             .take_until(tripwire)
             .for_each(move |rr| {
-               let ex = match rr {
+               match rr {
                     Ok((message, addr)) => {
                         let rf = forwarder1.borrow();
                         // post to manager
                         if rf.on_resolver_udp_msg(message, &addr) {
-                            Ok(())
                         } else {
-                            Err(std::io::Error::from(std::io::ErrorKind::Other))
+                            error!("[LocalResolver] on_resolver_udp_msg failed");
                         }
                     },
-                    Err(e) => Err(e)
+                    Err(e) => error!("[LocalResolver] for_each failed:{}", e)
                 };
 
                 future::ready(())
@@ -91,9 +87,9 @@ impl LocalResolver {
         Ok(())
     }
 
-    async fn try_rebuild(&mut self, fw: &Forwarder) -> Result<(), Error> {
+    fn try_rebuild(&mut self, fw: &Forwarder) -> Result<(), Error> {
         let rf = self.fw.take().unwrap();
-        let result = self.start(fw, rf).await?;
+        let result = self.start(fw, rf)?;
         Ok(result)
     }
 
@@ -137,7 +133,7 @@ impl LocalResolver {
         self.request_memo.clear();
     }
 
-    pub async fn request(
+    pub fn request(
         &mut self,
         fw: &Forwarder,
         qname: &str,
@@ -153,7 +149,7 @@ impl LocalResolver {
             }
 
             // need rebuild upd client
-            match self.try_rebuild(fw).await {
+            match self.try_rebuild(fw) {
                 Err(err) => {
                     error!("[LocalResolver]request failed, try_rebuild error:{}", err);
                     return;

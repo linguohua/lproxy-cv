@@ -1,11 +1,11 @@
 use crate::lws::WMessage;
-use futures_03::sync::mpsc::UnboundedSender;
-use futures_03::task::Task;
+use tokio::sync::mpsc::UnboundedSender;
 use log::error;
 use nix::sys::socket::{shutdown, Shutdown};
 use std::fmt;
 use std::os::unix::io::RawFd;
 use stream_cancel::Trigger;
+use futures_03::task::Waker;
 
 pub struct XRequest {
     pub index: u16,
@@ -14,7 +14,7 @@ pub struct XRequest {
     pub request_tx: Option<UnboundedSender<WMessage>>,
     pub trigger: Option<Trigger>,
 
-    pub wait_task: Option<Task>,
+    pub wait_task: Option<Waker>,
 
     pub rawfd: Option<RawFd>,
 }
@@ -107,7 +107,7 @@ impl XReqq {
 
         if req.wait_task.is_some() {
             let wait_task = req.wait_task.take().unwrap();
-            wait_task.notify();
+            wait_task.wake();
         }
 
         if req.rawfd.is_some() {

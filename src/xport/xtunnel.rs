@@ -5,16 +5,15 @@ use crate::lws::{RMessage, TMessage, WMessage};
 use crate::tunnels::{Cmd, THeader, THEADER_SIZE};
 use byte::*;
 use failure::Error;
-use futures_03::sync::mpsc::UnboundedSender;
+use tokio::sync::mpsc::UnboundedSender;
 use log::{debug, error, info};
 use nix::sys::socket::{shutdown, Shutdown};
 use std::cell::RefCell;
 use std::os::unix::io::RawFd;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
-use stream_cancel::{StreamExt, Trigger, Tripwire};
-use tokio::prelude::*;
-use tokio::time::Interval;
+use stream_cancel::{Trigger, Tripwire};
+use futures_03::prelude::*;
 
 pub type LongLive = Rc<RefCell<XTunnel>>;
 
@@ -160,7 +159,7 @@ impl XTunnel {
         self.save_keepalive_trigger(trigger);
 
         // tokio timer, every 3 seconds
-        let task = Interval::new(Instant::now(), Duration::from_millis(KEEP_ALIVE_INTERVAL))
+        let task = tokio::time::interval(Duration::from_millis(KEEP_ALIVE_INTERVAL))
             .skip(1)
             .take_until(tripwire)
             .for_each(move |instant| {
@@ -169,20 +168,15 @@ impl XTunnel {
                 let mut rf = s2.borrow_mut();
                 rf.keepalive(s2.clone());
 
-                Ok(())
-            })
-            .map_err(|e| {
-                error!(
-                    "[XTunnel]start_keepalive_timer interval errored; err={:?}",
-                    e
-                )
-            })
-            .then(|_| {
-                info!("[XTunnel] keepalive timer future completed");
-                Ok(())
+                future::ready(())
             });
 
-        tokio::task::spawn_local(task);
+            let t_fut = async move {
+                task.await;
+                info!("[XTunnel] keepalive timer future completed");
+                ()
+            };
+        tokio::task::spawn_local(t_fut);
     }
 
     fn send_ping(&mut self) {
@@ -208,7 +202,7 @@ impl XTunnel {
         bs.write_with::<u64>(offset, timestamp, LE).unwrap();
 
         let msg = WMessage::new(bs1, 0);
-        let r = self.tun_tx.as_ref().unwrap().unbounded_send(msg);
+        let r = self.tun_tx.as_ref().unwrap().send(msg);
         match r {
             Err(e) => {
                 error!("[XTunnel] tunnel send_ping error:{}", e);
@@ -286,7 +280,7 @@ impl XTunnel {
                         //     self.tunnel_id, req_idx, req_tag
                         // );
                         let wmsg = WMessage::new(vec, (3 + THEADER_SIZE) as u16);
-                        let result = tx.unbounded_send(wmsg);
+                        let result = tx.send(wmsg);
                         match result {
                             Err(e) => {
                                 info!("[XTunnel]tunnel msg send to request failed:{}", e);
@@ -353,7 +347,7 @@ impl XTunnel {
 
         let wmsg = WMessage::new(vec, 0);
         let tx = self.tun_tx.as_ref().unwrap();
-        let result = tx.unbounded_send(wmsg);
+        let result = tx.send(wmsg);
         match result {
             Err(e) => {
                 error!(
@@ -468,7 +462,7 @@ impl XTunnel {
             let wmsg = WMessage::new(buf, 0);
 
             // send to peer, should always succeed
-            if let Err(e) = self.tun_tx.as_ref().unwrap().unbounded_send(wmsg) {
+            if let Err(e) = self.tun_tx.as_ref().unwrap().send(wmsg) {
                 error!(
                     "[XTunnel]send_request_closed_to_server tx send failed:{}",
                     e
@@ -504,7 +498,7 @@ impl XTunnel {
 
         // websocket message
         let wmsg = WMessage::new(buf, 0);
-        let result = self.tun_tx.as_ref().unwrap().unbounded_send(wmsg);
+        let result = self.tun_tx.as_ref().unwrap().send(wmsg);
 
         match result {
             Err(e) => {
@@ -545,7 +539,7 @@ impl XTunnel {
         // );
 
         let wmsg = WMessage::new(vec, 0);
-        let result = self.tun_tx.as_ref().unwrap().unbounded_send(wmsg);
+        let result = self.tun_tx.as_ref().unwrap().send(wmsg);
         match result {
             Err(e) => {
                 error!("[XTunnel]request tun send error:{}, tun_tx maybe closed", e);

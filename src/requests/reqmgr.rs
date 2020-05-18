@@ -57,7 +57,7 @@ impl ReqMgr {
 
         let tx = &self.tmstub[index];
         let cmd = SubServiceCtlCmd::TcpTunnel(tcpstream);
-        if let Err(e) = tx.ctl_tx.unbounded_send(cmd) {
+        if let Err(e) = tx.ctl_tx.send(cmd) {
             error!("[ReqMgr]send req to tm failed:{}", e);
         }
 
