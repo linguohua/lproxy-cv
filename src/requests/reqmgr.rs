@@ -48,7 +48,7 @@ impl ReqMgr {
         s2.stop();
     }
 
-    pub fn on_accept_tcpstream(&mut self, tcpstream: tokio_tcp::TcpStream) {
+    pub fn on_accept_tcpstream(&mut self, tcpstream: tokio::net::TcpStream) {
         let index = self.tmindex;
         if index >= self.tmstub.len() {
             error!("[ReqMgr]no tm to handle tcpstream");

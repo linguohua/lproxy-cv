@@ -1,6 +1,6 @@
 use crate::lws::WMessage;
-use futures::sync::mpsc::UnboundedSender;
-use futures::task::Task;
+use futures_03::sync::mpsc::UnboundedSender;
+use futures_03::task::Task;
 use log::error;
 use nix::sys::socket::{shutdown, Shutdown};
 use std::fmt;

@@ -1,18 +1,18 @@
 use super::Forwarder;
 use failure::Error;
 use fnv::FnvHashMap as HashMap;
-use futures::sync::mpsc::UnboundedSender;
 use log::{error, info};
 use std::cell::RefCell;
 use std::net::SocketAddr;
 use std::rc::Rc;
-use stream_cancel::{StreamExt, Trigger, Tripwire};
-use tokio::net::{UdpFramed, UdpSocket};
-use tokio::prelude::*;
-use tokio::runtime::current_thread;
-use tokio_codec::BytesCodec;
 
-type TxType = UnboundedSender<(bytes::Bytes, std::net::SocketAddr)>;
+use tokio::net::{UdpSocket};
+use tokio::prelude::*;
+use futures_03::prelude::*;
+use stream_cancel::{Trigger, Tripwire};
+use tokio::sync::mpsc;
+
+type TxType = mpsc::UnboundedSender<(bytes::Bytes, std::net::SocketAddr)>;
 
 pub type LongLive = Rc<RefCell<LocalResolver>>;
 pub struct LocalResolver {
@@ -37,16 +37,17 @@ impl LocalResolver {
         }))
     }
 
-    pub fn start(&mut self, fw: &Forwarder, forward: Rc<RefCell<Forwarder>>) -> Result<(), Error> {
+    pub async fn start(&mut self, fw: &Forwarder, forward: Rc<RefCell<Forwarder>>) -> Result<(), Error> {
         let listen_addr = &self.listen_addr;
         let addr: SocketAddr = listen_addr.parse().map_err(|e| Error::from(e))?;
-        let a = UdpSocket::bind(&addr).map_err(|e| Error::from(e))?;
+        let a = UdpSocket::bind(&addr).await?;
 
-        let (a_sink, a_stream) = UdpFramed::new(a, BytesCodec::new()).split();
+        let udpFramed = tokio_util::udp::UdpFramed::new(a, tokio_util::codec::BytesCodec::new());
+        let (a_sink, a_stream) = udpFramed.split();
 
         let forwarder1 = forward.clone();
         let forwarder2 = forward.clone();
-        let (tx, rx) = futures::sync::mpsc::unbounded();
+        let (tx, rx) = mpsc::unbounded_channel();
         let (trigger, tripwire) = Tripwire::new();
 
         self.fw = Some(forward.clone());
@@ -54,43 +55,46 @@ impl LocalResolver {
         fw.on_lresolver_udp_created(self, forward);
 
         // send future
-        let send_fut = a_sink.send_all(rx.map_err(|e| {
-            error!("[LocalResolver]sink send_all failed:{:?}", e);
-            std::io::Error::from(std::io::ErrorKind::Other)
+        let send_fut = a_sink.send_all(&mut rx.map(move |x|{
+            Ok(x)
         }));
 
         let receive_fut = a_stream
             .take_until(tripwire)
-            .for_each(move |(message, addr)| {
-                let rf = forwarder1.borrow();
-                // post to manager
-                if rf.on_resolver_udp_msg(message, &addr) {
-                    Ok(())
-                } else {
-                    Err(std::io::Error::from(std::io::ErrorKind::Other))
-                }
+            .for_each(move |rr| {
+               let ex = match rr {
+                    Ok((message, addr)) => {
+                        let rf = forwarder1.borrow();
+                        // post to manager
+                        if rf.on_resolver_udp_msg(message, &addr) {
+                            Ok(())
+                        } else {
+                            Err(std::io::Error::from(std::io::ErrorKind::Other))
+                        }
+                    },
+                    Err(e) => Err(e)
+                };
+
+                future::ready(())
             });
 
-        // Wait for both futures to complete.
-        let receive_fut = receive_fut
-            .map_err(|_| ())
-            .select(send_fut.map(|_| ()).map_err(|_| ()))
-            .then(move |_| {
-                info!("[LocalResolver] udp both future completed");
-                let mut rf = forwarder2.borrow_mut();
-                rf.on_lresolver_udp_closed();
+        // Wait for one future to complete.
+        let select_fut = async move {
+            future::select(receive_fut, send_fut).await;
+            info!("[LocalResolver] udp both future completed");
+            let mut rf = forwarder2.borrow_mut();
+            rf.on_lresolver_udp_closed();
+        };
 
-                Ok(())
-            });
-
-        current_thread::spawn(receive_fut);
+        tokio::task::spawn_local(select_fut);
 
         Ok(())
     }
 
-    fn try_rebuild(&mut self, fw: &Forwarder) -> Result<(), Error> {
+    async fn try_rebuild(&mut self, fw: &Forwarder) -> Result<(), Error> {
         let rf = self.fw.take().unwrap();
-        self.start(fw, rf)
+        let result = self.start(fw, rf).await?;
+        Ok(result)
     }
 
     fn set_tx(&mut self, tx2: TxType, trigger: Trigger) {
@@ -133,7 +137,7 @@ impl LocalResolver {
         self.request_memo.clear();
     }
 
-    pub fn request(
+    pub async fn request(
         &mut self,
         fw: &Forwarder,
         qname: &str,
@@ -149,7 +153,7 @@ impl LocalResolver {
             }
 
             // need rebuild upd client
-            match self.try_rebuild(fw) {
+            match self.try_rebuild(fw).await {
                 Err(err) => {
                     error!("[LocalResolver]request failed, try_rebuild error:{}", err);
                     return;
@@ -166,7 +170,7 @@ impl LocalResolver {
                 }
 
                 self.request_memo.insert(key, src_addr);
-                match tx.unbounded_send((bm, self.dns_server_addr)) {
+                match tx.send((bm, self.dns_server_addr)) {
                     Err(e) => {
                         error!("[LocalResolver]unbounded_send error:{}", e);
                     }

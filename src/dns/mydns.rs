@@ -1,10 +1,12 @@
 use super::{BytePacketBuffer, DnsPacket, DnsQuestion, DnsRecord, QueryType};
 use crate::config::DEFAULT_DNS_SERVER;
-use futures::prelude::*;
+use futures_03::prelude::*;
 use log::{error, info};
 use std::io::{Error, ErrorKind};
 use std::net::IpAddr;
 use tokio::net::UdpSocket;
+use std::pin::Pin;
+use futures_03::task::{Context, Poll};
 
 pub enum MyDnsState {
     Init,
@@ -68,11 +70,11 @@ impl MyDns {
         let mut req_buffer = BytePacketBuffer::new(&mut reqbuff);
         packet.write(&mut req_buffer).unwrap(); // should not failed
 
-        let addr = "0.0.0.0:0"
+        let addr: std::net::SocketAddr  = "0.0.0.0:0"
             .parse()
             .map_err(|_| Error::new(ErrorKind::Other, "bind addr parse error"))?;
-
-        let a = UdpSocket::bind(&addr)?;
+        let u = std::net::UdpSocket::bind(addr)?;
+        let a = UdpSocket::from_std(u)?;
         self.udp = Some(a);
         self.send_len = req_buffer.pos;
         self.send_buf = Some(reqbuff);
@@ -102,10 +104,9 @@ impl MyDns {
 }
 
 impl Future for MyDns {
-    type Item = IpAddr;
-    type Error = Error;
+    type Output = std::result::Result<IpAddr, Error>;
 
-    fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         loop {
             match self.state {
                 MyDnsState::Init => {
@@ -120,22 +121,22 @@ impl Future for MyDns {
                 }
                 MyDnsState::Send => {
                     let target = format!("{}:53", DEFAULT_DNS_SERVER);
-                    let target_addr = target
+                    let target_addr: std::net::SocketAddr = target
                         .parse()
                         .map_err(|_| Error::new(ErrorKind::Other, "target addr parse error"))?;
 
                     let a = self.udp.as_mut().unwrap(); // should not failed
                     let len = self.send_len;
                     let buf = self.send_buf.as_mut().unwrap(); // should not failed
-                    let nr = a.poll_send_to(&buf[0..len], &target_addr)?;
+                    let nr = a.poll_send_to(cx, &buf[0..len], &target_addr)?;
                     match nr {
-                        Async::Ready(n) => {
+                        Poll::Ready(n) => {
                             if n != len {
                                 error!("[mydns] poll_send_to leak data");
                             }
                         }
-                        Async::NotReady => {
-                            return Ok(Async::NotReady);
+                        Poll::Pending => {
+                            return Poll::Pending;
                         }
                     }
 
@@ -145,9 +146,9 @@ impl Future for MyDns {
                     // recv from udpsocket
                     let a = self.udp.as_mut().unwrap(); // should not failed
                     let mut rspbuff = vec![0 as u8; 512];
-                    let result = a.poll_recv_from(&mut rspbuff[..])?;
+                    let result = a.poll_recv_from(cx, &mut rspbuff[..])?;
                     match result {
-                        Async::Ready((n, _)) => {
+                        Poll::Ready((n, _)) => {
                             // parse result
                             self.parse_result(&mut rspbuff[..n])?;
                             info!(
@@ -156,8 +157,8 @@ impl Future for MyDns {
                             );
                             self.state = MyDnsState::Done;
                         }
-                        Async::NotReady => {
-                            return Ok(Async::NotReady);
+                        Poll::Pending => {
+                            return Poll::Pending;
                         }
                     }
                 }
@@ -166,7 +167,7 @@ impl Future for MyDns {
                     self.send_buf = None;
                     self.udp = None;
 
-                    return Ok(Async::Ready(self.result.take().unwrap()));
+                    return Poll::Ready(Ok(self.result.take().unwrap()));
                 }
             }
         }

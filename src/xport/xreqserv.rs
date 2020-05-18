@@ -1,7 +1,7 @@
 use super::{LongLive, XTunnel};
 use crate::lws::{TcpFramed, WMessage};
-use futures::future::Future;
-use futures::sync::mpsc::{unbounded, UnboundedReceiver};
+use futures_03::future::Future;
+use futures_03::sync::mpsc::{unbounded, UnboundedReceiver};
 use log::{error, info};
 use nix::sys::socket::{shutdown, Shutdown};
 use std::net::SocketAddr;
@@ -9,9 +9,8 @@ use std::os::unix::io::AsRawFd;
 use std::time::Duration;
 use stream_cancel::{StreamExt, Tripwire};
 use tokio::prelude::*;
-use tokio::runtime::current_thread;
-use tokio::timer::Timeout;
-use tokio_tcp::TcpStream;
+use tokio::time::Timeout;
+use tokio::net::TcpStream;
 
 pub fn proxy_request(
     xtun: &mut XTunnel,
@@ -45,7 +44,7 @@ pub fn proxy_request(
         ()
     });
 
-    current_thread::spawn(fut);
+    tokio::task::spawn_local(fut);
     true
 }
 
@@ -124,5 +123,5 @@ fn proxy_request_internal(
             Ok(())
         });
 
-    current_thread::spawn(receive_fut);
+    tokio::task::spawn_local(receive_fut);
 }

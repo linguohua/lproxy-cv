@@ -13,9 +13,7 @@ use std::time::Duration;
 use stream_cancel::{StreamExt, Tripwire};
 use tokio;
 use tokio::prelude::*;
-use tokio::runtime::current_thread;
-use tokio_io_timeout::TimeoutStream;
-use tokio_tcp::TcpStream;
+use tokio::net::TcpStream;
 
 pub fn serve_sock(socket: TcpStream, mgr: Rc<RefCell<TunMgr>>) {
     // config tcp stream
@@ -56,7 +54,7 @@ pub fn serve_sock(socket: TcpStream, mgr: Rc<RefCell<TunMgr>>) {
     let framed = TcpFramed::new(socket);
     let (sink, stream) = framed.split();
     let (trigger, tripwire) = Tripwire::new();
-    let (tx, rx) = futures::sync::mpsc::unbounded();
+    let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
 
     let req = Request::with(tx, trigger);
     let tunstub = mgr.borrow_mut().on_request_created(req, ip.to_std(), port);
@@ -148,7 +146,7 @@ pub fn serve_sock(socket: TcpStream, mgr: Rc<RefCell<TunMgr>>) {
             Ok(())
         });
 
-    current_thread::spawn(receive_fut);
+    tokio::task::spawn_local(receive_fut);
 }
 
 fn on_request_msg(mut message: TMessage, tun: &TunStub) -> bool {

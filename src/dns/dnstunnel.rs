@@ -4,7 +4,7 @@ use crate::config::KEEP_ALIVE_INTERVAL;
 use crate::lws::{RMessage, WMessage};
 use crate::tunnels::Cmd;
 use byte::*;
-use futures::sync::mpsc::UnboundedSender;
+use tokio::sync::mpsc::UnboundedSender;
 use log::{error, info};
 use nix::sys::socket::{shutdown, Shutdown};
 use std::net::IpAddr::V4;

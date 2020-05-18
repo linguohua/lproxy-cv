@@ -1,5 +1,5 @@
 use crate::lws::WMessage;
-use futures::sync::mpsc::UnboundedSender;
+use tokio::sync::mpsc::UnboundedSender;
 use std::fmt;
 
 pub struct TunStub {

@@ -8,9 +8,9 @@ mod tunnels;
 mod xport;
 
 use fs2::FileExt;
-use futures::future::lazy;
-use futures::stream::Stream;
-use futures::Future;
+use futures_03::future::lazy;
+//use futures::stream::Stream;
+//se futures::Future;
 use log::{error, info};
 use service::Service;
 use signal_hook::iterator::Signals;
@@ -18,7 +18,8 @@ use std::env;
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::process;
-use tokio::runtime::current_thread::Runtime;
+use tokio::prelude::*;
+use tokio::runtime;
 
 pub const PIDFILE: &'static str = "/var/run/lproxy-cv.pid";
 pub const LOCKFILE: &'static str = "/var/run/lproxy-cv.lock";
@@ -117,8 +118,13 @@ fn main() {
         "try to start lproxy-cv server, ver:{}, uuid: {}, arch:{}",
         VERSION, uuid, ARCH
     );
-    let mut rt = Runtime::new().unwrap();
+
+    let mut basic_rt = runtime::Builder::new()
+    .basic_scheduler()
+    .enable_all()
+    .build()?;
     // let handle = rt.handle();
+    let local = tokio::task::LocalSet::new();
 
     let l = lazy(move || {
         let s = Service::new(uuid);
@@ -140,8 +146,7 @@ fn main() {
         wait_signal
     });
 
-    rt.spawn(l);
-    rt.run().unwrap();
+    local.block_on(&mut basic_rt, l);
 
     if pidfile_holder.is_some() {
         match pidfile_holder.unwrap().set_len(0) {

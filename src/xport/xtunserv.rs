@@ -1,9 +1,9 @@
 use super::{LongLive, XTunnel};
 use crate::tunnels::ws_connect_async;
-use futures::{Future, Stream};
+use futures_03::{Future, Stream};
 use log::{debug, error, info};
 use nix::sys::socket::{shutdown, Shutdown};
-use tokio::runtime::current_thread;
+use tokio::task;
 
 pub fn xtunel_connect(xtun: &mut XTunnel, ll: LongLive) {
     let ws_url = &xtun.url_string;
@@ -29,7 +29,7 @@ pub fn xtunel_connect(xtun: &mut XTunnel, ll: LongLive) {
             // Create a channel for our stream, which other sockets will use to
             // send us messages. Then register our address with the stream to send
             // data to us.
-            let (tx, rx) = futures::sync::mpsc::unbounded();
+            let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
             let mut rf = ll.borrow_mut();
             if let Err(_) = rf.on_tunnel_created(rawfd, tx) {
                 // TODO: should return directly
@@ -83,5 +83,5 @@ pub fn xtunel_connect(xtun: &mut XTunnel, ll: LongLive) {
             ()
         });
 
-    current_thread::spawn(client);
+        task::spawn_local(client);
 }

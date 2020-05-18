@@ -4,11 +4,11 @@ use failure::Error;
 use log::{error, info};
 use std::net::SocketAddr;
 use std::result::Result;
-use stream_cancel::{StreamExt, Trigger, Tripwire};
-use tokio::net::{UdpFramed, UdpSocket};
+
+use tokio::net::{UdpSocket};
 use tokio::prelude::*;
-use tokio::runtime::current_thread;
-use tokio_codec::BytesCodec;
+use futures_03::prelude::*;
+use stream_cancel::{Trigger, Tripwire};
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -30,16 +30,17 @@ impl UdpServer {
         }))
     }
 
-    pub fn start(&mut self, fw: &Forwarder, forward: ForwarderType) -> Result<(), Error> {
+    pub async fn start(&mut self, fw: &Forwarder, forward: ForwarderType) -> Result<(), Error> {
         let listen_addr = &self.listen_addr;
         let addr: SocketAddr = listen_addr.parse().map_err(|e| Error::from(e))?;
-        let a = UdpSocket::bind(&addr).map_err(|e| Error::from(e))?;
+        let a = UdpSocket::bind(&addr).await?;
 
-        let (a_sink, a_stream) = UdpFramed::new(a, BytesCodec::new()).split();
+        let udpFramed = tokio_util::udp::UdpFramed::new(a, tokio_util::codec::BytesCodec::new());
+        let (a_sink, a_stream) = udpFramed.split();
 
         let forwarder1 = forward.clone();
         let forwarder2 = forward.clone();
-        let (tx, rx) = futures::sync::mpsc::unbounded();
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
         let (trigger, tripwire) = Tripwire::new();
 
         self.set_tx(tx, trigger);
@@ -47,36 +48,39 @@ impl UdpServer {
         fw.on_dns_udp_created(self, forward);
 
         // send future
-        let send_fut = a_sink.send_all(rx.map_err(|e| {
-            error!("[UdpServer]sink send_all failed:{:?}", e);
-            std::io::Error::from(std::io::ErrorKind::Other)
+        let send_fut = a_sink.send_all(&mut rx.map(move |x|{
+            Ok(x)
         }));
 
         let receive_fut = a_stream
-            .take_until(tripwire)
-            .for_each(move |(message, addr)| {
-                let rf = forwarder1.borrow();
-                // post to manager
-                if rf.on_dns_udp_msg(message, addr) {
-                    Ok(())
-                } else {
-                    Err(std::io::Error::from(std::io::ErrorKind::Other))
-                }
-            });
+        .take_until(tripwire)
+        .for_each(move |rr| {
+            let ex = match rr {
+                Ok((message, addr)) => {
+                    let rf = forwarder1.borrow();
+                    // post to manager
+                    if rf.on_dns_udp_msg(message, addr) {
+                        Ok(())
+                    } else {
+                        Err(std::io::Error::from(std::io::ErrorKind::Other))
+                    }
+                },
+                Err(e) => Err(e)
+            };
 
-        // Wait for both futures to complete.
-        let receive_fut = receive_fut
-            .map_err(|_| ())
-            .select(send_fut.map(|_| ()).map_err(|_| ()))
-            .then(move |_| {
-                info!("[UdpServer] udp both future completed");
-                let rf = forwarder2.borrow();
-                rf.on_dns_udp_closed();
+            future::ready(())
+        });
 
-                Ok(())
-            });
 
-        current_thread::spawn(receive_fut);
+        // Wait for one future to complete.
+        let select_fut = async move {
+            future::select(receive_fut, send_fut).await;
+            info!("[UdpServer] udp both future completed");
+            let rf = forwarder2.borrow();
+            rf.on_dns_udp_closed();
+        };
+
+        tokio::task::spawn_local(select_fut);
 
         Ok(())
     }
@@ -100,7 +104,7 @@ impl UdpServer {
 
     pub fn reply(&self, bm: bytes::Bytes, sa: SocketAddr) {
         match self.get_tx() {
-            Some(tx) => match tx.unbounded_send((bm, sa)) {
+            Some(tx) => match tx.send((bm, sa)) {
                 Err(e) => {
                     error!("[UdpServer]unbounded_send error:{}", e);
                 }

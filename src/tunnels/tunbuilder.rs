@@ -1,7 +1,7 @@
 use super::TunMgr;
 use super::Tunnel;
 use crate::{dns, lws};
-use futures::{Future, Stream};
+use futures_03::prelude::*;
 use log::{debug, error, info};
 use native_tls::TlsConnector;
 use nix::sys::socket::{shutdown, Shutdown};
@@ -11,8 +11,7 @@ use std::os::unix::io::RawFd;
 use std::rc::Rc;
 use std::time::Duration;
 use tokio;
-use tokio::prelude::FutureExt;
-use tokio::runtime::current_thread;
+use tokio::prelude::*;
 use url;
 
 pub fn connect(tm: &TunMgr, mgr2: Rc<RefCell<TunMgr>>, index: usize) {
@@ -47,7 +46,7 @@ pub fn connect(tm: &TunMgr, mgr2: Rc<RefCell<TunMgr>>, index: usize) {
             // Create a channel for our stream, which other sockets will use to
             // send us messages. Then register our address with the stream to send
             // data to us.
-            let (tx, rx) = futures::sync::mpsc::unbounded();
+            let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
             let t = Rc::new(RefCell::new(Tunnel::new(
                 tx,
                 rawfd,
@@ -106,15 +105,15 @@ pub fn connect(tm: &TunMgr, mgr2: Rc<RefCell<TunMgr>>, index: usize) {
             ()
         });
 
-    current_thread::spawn(client);
+    tokio::task::spawn_local(client);
 }
 
-pub type FrameType = lws::LwsFramed<tokio_tls::TlsStream<tokio_tcp::TcpStream>>;
-pub fn ws_connect_async(
+pub type FrameType = lws::LwsFramed<tokio_tls::TlsStream<tokio::net::TcpStream>>;
+pub async fn ws_connect_async(
     relay_domain: &str,
     relay_port: u16,
     url2: url::Url,
-) -> impl Future<Item = (FrameType, RawFd), Error = std::io::Error> {
+) -> std::result::Result<(FrameType, RawFd), std::io::Error> {
     let mut builder = TlsConnector::builder();
     let builder = builder.min_protocol_version(Some(native_tls::Protocol::Tlsv13));
     #[cfg(not(target_arch = "x86_64"))]
@@ -136,36 +135,18 @@ pub fn ws_connect_async(
         host_str, path
     );
 
-    let fut = dns::MyDns::new(relay_domain.to_string());
-    let fut = fut.and_then(move |ipaddr| {
-        let addr = std::net::SocketAddr::new(ipaddr, relay_port);
-        tokio_tcp::TcpStream::connect(&addr)
-    });
+    let net_fut = async move {
+            let ipaddr = dns::MyDns::new(relay_domain.to_string()).await?;
+            let addr = std::net::SocketAddr::new(ipaddr, relay_port);
+            let socket = tokio::net::TcpStream::connect(&addr).await?;
+            let rawfd = socket.as_raw_fd();
+            let socket = cx.connect(&host_str, socket).await?;
+            let (lsocket,tail) = lws::do_client_hanshake(socket, &host_str, &path).await?;
+            let framed = lws::LwsFramed::new(lsocket, tail);
+            Ok((framed, rawfd))
+    };
 
-    let fut = fut.and_then(move |socket| {
-        let rawfd = socket.as_raw_fd();
-        let tls_handshake = cx.connect(&host_str, socket);
-        let fut = tls_handshake
-            .map_err(|tslerr| {
-                println!("[tunbuilder] TLS connect error:{}", tslerr);
-                std::io::Error::from(std::io::ErrorKind::NotConnected)
-            })
-            .and_then(move |socket| {
-                let handshake = lws::do_client_hanshake(socket, &host_str, &path);
-                let handshake = handshake.and_then(move |(lsocket, tail)| {
-                    println!("[tunbuilder] lws handshake completed");
-                    let framed = lws::LwsFramed::new(lsocket, tail);
-
-                    Ok((framed, rawfd))
-                });
-
-                handshake
-            });
-
-        fut
-    });
-
-    let fut = fut
+    let fut = net_fut
         .timeout(Duration::from_millis(10 * 1000)) // 10 seconds
         .map_err(|err| {
             if err.is_elapsed() {

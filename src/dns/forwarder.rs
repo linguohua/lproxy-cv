@@ -17,8 +17,7 @@ use std::result::Result;
 use std::time::{Duration, Instant};
 use stream_cancel::{StreamExt, Trigger, Tripwire};
 use tokio::prelude::*;
-use tokio::runtime::current_thread;
-use tokio::timer::Interval;
+use tokio::time::Interval;
 use crate::service::{DNSAddRecord, TxType, Instruction};
 
 type TunnelItem = Option<Rc<RefCell<DnsTunnel>>>;
@@ -542,6 +541,6 @@ impl Forwarder {
                 Ok(())
             });
 
-        current_thread::spawn(task);
+        tokio::task::spawn_local(task);
     }
 }

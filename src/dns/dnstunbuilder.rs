@@ -1,14 +1,13 @@
 use super::DnsTunnel;
 use super::Forwarder;
 use crate::tunnels::ws_connect_async;
-use futures::sync::mpsc::UnboundedSender;
-use futures::{Future, Stream};
+use tokio::sync::mpsc::UnboundedSender;
+use futures_03::prelude::*;
 use log::{debug, error, info};
 use nix::sys::socket::{shutdown, Shutdown};
 use std::cell::RefCell;
 use std::rc::Rc;
 use tokio;
-use tokio::runtime::current_thread;
 use url;
 
 pub type TxType = UnboundedSender<(bytes::Bytes, std::net::SocketAddr)>;
@@ -35,7 +34,7 @@ pub fn connect(fw: &Forwarder, mgr2: Rc<RefCell<Forwarder>>, index: usize, udp_t
             // Create a channel for our stream, which other sockets will use to
             // send us messages. Then register our address with the stream to send
             // data to us.
-            let (tx, rx) = futures::sync::mpsc::unbounded();
+            let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
 
             let t = Rc::new(RefCell::new(DnsTunnel::new(tx, rawfd, udp_tx, index)));
             let mut rf = mgr1.borrow_mut();
@@ -90,5 +89,5 @@ pub fn connect(fw: &Forwarder, mgr2: Rc<RefCell<Forwarder>>, index: usize, udp_t
             ()
         });
 
-    current_thread::spawn(client);
+    tokio::task::spawn_local(client);
 }

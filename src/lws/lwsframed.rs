@@ -1,10 +1,12 @@
 use super::{RMessage, WMessage};
 use bytes::BufMut;
-use futures::prelude::*;
-use futures::try_ready;
+use futures_03::prelude::*;
+use futures_03::ready;
 use std::io::Error;
-use tokio::io::AsyncRead;
+use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::prelude::*;
+use std::pin::Pin;
+use futures_03::task::{Context, Poll};
 
 pub struct LwsFramed<T> {
     io: T,
@@ -39,12 +41,14 @@ fn read_from_tail<B: BufMut>(vec: &mut Vec<u8>, bf: &mut B) -> Vec<u8> {
 
 impl<T> Stream for LwsFramed<T>
 where
-    T: AsyncRead,
+    T: AsyncRead+Unpin,
 {
-    type Item = RMessage;
-    type Error = Error;
+    type Item = std::result::Result<RMessage,Error>;
 
-    fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
+    fn poll_next(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Option<Self::Item>> {
         loop {
             //self.inner.poll()
             if self.reading.is_none() {
@@ -68,46 +72,49 @@ where
                 }
             } else {
                 // read from io
-                let n = try_ready!(self.io.read_buf(msg));
+                let pin_io = Pin::new(&mut self.io);
+                let n = ready!(pin_io.poll_read_buf(cx,msg))?;
                 if n == 0 {
-                    return Ok(Async::Ready(None));
+                    return Poll::Ready(None);
                 }
             }
 
             if msg.is_completed() {
                 // if message is completed
                 // return ready
-                return Ok(Async::Ready(Some(self.reading.take().unwrap())));
+                return Poll::Ready(Some(Ok(self.reading.take().unwrap())));
             }
         }
     }
 }
 
-impl<T> Sink for LwsFramed<T>
+impl<T> Sink<WMessage> for LwsFramed<T>
 where
-    T: AsyncWrite,
+    T: AsyncWrite+Unpin,
 {
-    type SinkItem = WMessage;
-    type SinkError = Error;
-
-    fn start_send(&mut self, item: Self::SinkItem) -> StartSend<Self::SinkItem, Self::SinkError> {
+    type Error = Error;
+    fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         if self.writing.is_some() {
-            self.poll_complete()?;
-
-            if self.writing.is_some() {
-                return Ok(AsyncSink::NotReady(item));
+            match self.poll_flush(cx)? {
+                Poll::Ready(()) => {}
+                Poll::Pending => return Poll::Pending,
             }
         }
 
-        self.writing = Some(item);
-        Ok(AsyncSink::Ready)
+        Poll::Ready(Ok(()))
     }
 
-    fn poll_complete(&mut self) -> Poll<(), Self::SinkError> {
+    fn start_send(self: Pin<&mut Self>, item: WMessage) -> Result<(), Self::Error> {
+        self.writing = Some(item);
+        Ok(())
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        let pin_io = Pin::new(&mut self.io);
         if self.writing.is_some() {
             let writing = self.writing.as_mut().unwrap();
             loop {
-                try_ready!(self.io.write_buf(writing));
+                ready!(pin_io.poll_write_buf(cx,writing))?;
 
                 if writing.is_completed() {
                     self.writing = None;
@@ -117,14 +124,13 @@ where
         }
 
         // Try flushing the underlying IO
-        try_ready!(self.io.poll_flush());
+        ready!(pin_io.poll_flush(cx))?;
 
-        return Ok(Async::Ready(()));
+        return Poll::Ready(Ok(()));
     }
 
-    fn close(&mut self) -> Poll<(), Self::SinkError> {
-        try_ready!(self.poll_complete());
-
-        Ok(self.io.shutdown()?)
+    fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        ready!(self.poll_flush(cx))?;
+        Poll::Ready(Ok(()))
     }
 }

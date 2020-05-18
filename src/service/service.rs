@@ -2,7 +2,7 @@ use std::net::IpAddr;
 use super::{SubServiceCtl, SubServiceCtlCmd, SubServiceType, AccLog, DNSAddRecord};
 use crate::config::{self, CFG_MONITOR_INTERVAL, LPROXY_SCRIPT};
 use crate::htp;
-use futures::sync::mpsc::UnboundedSender;
+use tokio::sync::mpsc::UnboundedSender;
 use log::{debug, error, info};
 use mac_address::MacAddressIterator;
 use std::cell::RefCell;
@@ -13,8 +13,7 @@ use std::rc::Rc;
 use std::time::{Duration, Instant};
 use stream_cancel::{StreamExt, Trigger, Tripwire};
 use tokio::prelude::*;
-use tokio::runtime::current_thread;
-use tokio::timer::{Delay, Interval};
+use tokio::time::{Delay, Interval};
 use protobuf::{Message};
 
 // state constants
@@ -86,7 +85,7 @@ impl Service {
             self.state = STATE_STARTING;
             super::set_uci_dnsmasq_to_default();
 
-            let (tx, rx) = futures::sync::mpsc::unbounded();
+            let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
             let (trigger, tripwire) = Tripwire::new();
             self.save_instruction_trigger(trigger);
 
@@ -106,7 +105,7 @@ impl Service {
             self.save_tx(Some(tx));
             self.fire_instruction(Instruction::Auth);
 
-            current_thread::spawn(fut);
+            tokio::task::spawn_local(fut);
         } else {
             panic!("[Service] start failed, state not stopped");
         }
@@ -268,7 +267,7 @@ impl Service {
                 Ok(())
             });
 
-        current_thread::spawn(fut);
+        tokio::task::spawn_local(fut);
     }
 
     fn do_cfg_monitor(s: LongLive) {
@@ -381,7 +380,7 @@ impl Service {
                 Ok(())
             });
 
-        current_thread::spawn(fut);
+        tokio::task::spawn_local(fut);
 
         Service::do_access_report(s);
     }
@@ -448,7 +447,7 @@ impl Service {
                 Ok(())
             });
 
-        current_thread::spawn(fut);        
+        tokio::task::spawn_local(fut);        
     }
 
     fn notify_forwarder_update_domains(&self, domains: Vec<String>) {
@@ -556,7 +555,7 @@ impl Service {
                 Ok(())
             });
 
-        current_thread::spawn(fut);
+        tokio::task::spawn_local(fut);
     }
 
     fn get_upgrade_target_filepath() -> Option<(PathBuf, PathBuf)> {
@@ -615,7 +614,7 @@ impl Service {
                 ()
             });
 
-        current_thread::spawn(task);
+        tokio::task::spawn_local(task);
     }
 
     fn do_start_subservices(s: LongLive) {
@@ -660,7 +659,7 @@ impl Service {
                 Err(())
             });
 
-        current_thread::spawn(fut);
+        tokio::task::spawn_local(fut);
 
         // enable uci dnsmasq forward server, point to this
         super::set_uci_dnsmasq_to_me();
@@ -760,7 +759,7 @@ impl Service {
                 Ok(())
             });
 
-        current_thread::spawn(task);
+        tokio::task::spawn_local(task);
     }
 
     fn fetch_all_macs() -> Vec<String> {

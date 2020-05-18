@@ -1,8 +1,11 @@
 use bytes::{BufMut, BytesMut};
-use futures::prelude::*;
-use futures::try_ready;
+use futures_03::prelude::*;
+use futures_03::ready;
 use std::io::Error;
 use tokio::prelude::*;
+use std::pin::Pin;
+use futures_03::task::{Context, Poll};
+use tokio::io::{AsyncRead, AsyncWrite};
 
 pub enum CHState {
     WritingHeader,
@@ -67,18 +70,18 @@ impl<T> CHandshake<T> {
 
 impl<T> Future for CHandshake<T>
 where
-    T: AsyncWrite + AsyncRead,
+    T: AsyncWrite + AsyncRead + Unpin,
 {
-    type Item = (T, Option<Vec<u8>>);
-    type Error = Error;
+    type Output = std::result::Result<(T, Option<Vec<u8>>), Error>;
 
-    fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output>{
         loop {
             match self.state {
                 CHState::WritingHeader => {
-                    // write out
-                    let io = self.io.as_mut().unwrap();
-                    try_ready!(io.write_buf(&mut self.wmsg));
+                    // write out 
+                    // let io = self.io.as_mut().unwrap();
+                    let pin_io = Pin::new(&mut self.io.as_mut().unwrap());
+                    ready!(pin_io.poll_write_buf(cx, &mut self.wmsg))?;
 
                     if self.wmsg.is_completed() {
                         self.state = CHState::ReadingResponse;
@@ -86,22 +89,22 @@ where
                 }
                 CHState::ReadingResponse => {
                     // read in
-                    let io = self.io.as_mut().unwrap();
                     let bm = &mut self.read_buf;
                     if !bm.has_remaining_mut() {
                         // error, head too large
-                        return Err(std::io::Error::new(
+                        return Poll::Ready(Err(std::io::Error::new(
                             std::io::ErrorKind::Other,
                             "header too large",
-                        ));
+                        )));
                     }
 
-                    let n = try_ready!(io.read_buf(bm));
+                    let pin_io = Pin::new(&mut self.io.as_mut().unwrap());
+                    let n = ready!(pin_io.poll_read_buf(cx, bm))?;
                     if n == 0 {
-                        return Err(std::io::Error::new(
+                        return Poll::Ready(Err(std::io::Error::new(
                             std::io::ErrorKind::Other,
                             "can't read completed response",
-                        ));
+                        )));
                     }
 
                     if self.parse_response() {
@@ -119,7 +122,7 @@ where
                     } else {
                         vv = None;
                     }
-                    return Ok(Async::Ready((io, vv)));
+                    return Poll::Ready(Ok((io, vv)));
                 }
             }
         }

@@ -5,7 +5,7 @@ use crate::lws::{RMessage, TMessage, WMessage};
 use crate::tunnels::{Cmd, THeader, THEADER_SIZE};
 use byte::*;
 use failure::Error;
-use futures::sync::mpsc::UnboundedSender;
+use futures_03::sync::mpsc::UnboundedSender;
 use log::{debug, error, info};
 use nix::sys::socket::{shutdown, Shutdown};
 use std::cell::RefCell;
@@ -14,8 +14,7 @@ use std::rc::Rc;
 use std::time::{Duration, Instant};
 use stream_cancel::{StreamExt, Trigger, Tripwire};
 use tokio::prelude::*;
-use tokio::runtime::current_thread;
-use tokio::timer::Interval;
+use tokio::time::Interval;
 
 pub type LongLive = Rc<RefCell<XTunnel>>;
 
@@ -183,7 +182,7 @@ impl XTunnel {
                 Ok(())
             });
 
-        current_thread::spawn(task);
+        tokio::task::spawn_local(task);
     }
 
     fn send_ping(&mut self) {

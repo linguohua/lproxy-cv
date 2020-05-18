@@ -9,9 +9,7 @@ use std::rc::Rc;
 use std::result::Result;
 use stream_cancel::{StreamExt, Trigger, Tripwire};
 use tokio;
-use tokio::prelude::*;
-use tokio::runtime::current_thread;
-use tokio_tcp::TcpListener;
+use tokio::net::TcpListener;
 
 type LongLive = Rc<RefCell<Server>>;
 
@@ -67,7 +65,7 @@ impl Server {
             });
 
         // Start the Tokio runtime
-        current_thread::spawn(server);
+        tokio::task::spawn_local(server);
 
         Ok(())
     }

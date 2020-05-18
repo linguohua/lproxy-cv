@@ -1,11 +1,11 @@
 use crate::dns;
 use failure::Error;
-use futures::future::Either;
-use futures::Future;
+use futures_03::future::Either;
+use futures_03::Future;
 use native_tls::TlsConnector;
 use std::io;
 use std::time::Duration;
-use tokio::prelude::FutureExt;
+use tokio::prelude::*;
 use url::Url;
 
 #[derive(Debug)]
@@ -37,15 +37,15 @@ impl HTTPRequest {
         })
     }
 
-    pub fn exec(&self, body: Option<Vec<u8>>) -> impl Future<Item = HTTPResponse, Error = Error> {
+    pub async fn exec(&self, body: Option<Vec<u8>>) -> Result<HTTPResponse, Error> {
         if self.is_secure() {
-            Either::A(self.https_exec(body))
+            self.https_exec(body).await
         } else {
-            Either::B(self.http_exec(body))
+            self.http_exec(body).await
         }
     }
 
-    fn http_exec(&self, body: Option<Vec<u8>>) -> impl Future<Item = HTTPResponse, Error = Error> {
+    async  fn http_exec(&self, body: Option<Vec<u8>>) -> Result<HTTPResponse, Error> {
         let urlparsed = &self.url_parsed;
         let host = urlparsed.host_str().unwrap();
         let port = urlparsed.port_or_known_default().unwrap();
@@ -61,7 +61,7 @@ impl HTTPRequest {
         let fut = dns::MyDns::new(host.to_string());
         let fut = fut.and_then(move |ipaddr| {
             let addr = std::net::SocketAddr::new(ipaddr, port);
-            tokio_tcp::TcpStream::connect(&addr)
+            tokio::net::TcpStream::connect(&addr)
         });
 
         let fut = fut.map_err(|e| e.into()).and_then(move |socket| {
@@ -72,9 +72,9 @@ impl HTTPRequest {
                 vec = Vec::from(head_str.as_bytes());
             }
 
-            let request = tokio_io::io::write_all(socket, vec);
+            let request = tokio::io::AsyncWriteExt::write_all(socket, &vec);
             let response =
-                request.and_then(|(socket, _)| tokio_io::io::read_to_end(socket, Vec::new()));
+                request.and_then(|(socket, _)| tokio::io::AsyncReadExt::read_to_end(socket, Vec::new()));
 
             let response = response
                 .and_then(|arg| {
@@ -97,7 +97,7 @@ impl HTTPRequest {
         })
     }
 
-    fn https_exec(&self, body: Option<Vec<u8>>) -> impl Future<Item = HTTPResponse, Error = Error> {
+    async fn https_exec(&self, body: Option<Vec<u8>>) -> Result<HTTPResponse, Error> {
         let urlparsed = &self.url_parsed;
         let host = urlparsed.host_str().unwrap();
         let port = urlparsed.port_or_known_default().unwrap();
@@ -117,7 +117,7 @@ impl HTTPRequest {
         let fut = dns::MyDns::new(host.to_string());
         let fut = fut.and_then(move |ipaddr| {
             let addr = std::net::SocketAddr::new(ipaddr, port);
-            tokio_tcp::TcpStream::connect(&addr)
+            tokio::net::TcpStream::connect(&addr)
         });
 
         let fut = fut.map_err(|e| e.into()).and_then(move |socket| {
@@ -132,11 +132,11 @@ impl HTTPRequest {
                 } else {
                     vec = Vec::from(head_str.as_bytes());
                 }
-                tokio_io::io::write_all(socket, vec)
+                tokio::io::AsyncWriteExt::write_all(socket, &vec)
             });
 
             let response =
-                request.and_then(|(socket, _)| tokio_io::io::read_to_end(socket, Vec::new()));
+                request.and_then(|(socket, _)| tokio::io::AsyncReadExt::read_to_end(socket, Vec::new()));
 
             let response = response
                 .and_then(|arg| {

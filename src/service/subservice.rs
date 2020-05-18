@@ -3,18 +3,18 @@ use crate::dns;
 use crate::requests;
 use crate::tunnels;
 use crate::xport;
-use futures::future::lazy;
-use futures::stream::iter_ok;
-use futures::stream::Stream;
-use futures::sync::mpsc::{unbounded, UnboundedSender};
-use futures::Future;
+use futures_03::future::lazy;
+use futures_03::stream::iter_ok;
+use futures_03::stream::Stream;
+use futures_03::Future;
+use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
 use log::{error, info};
 use std::cell::RefCell;
 use std::fmt;
 use std::rc::Rc;
 use std::sync::Arc;
-use tokio::runtime::current_thread::{self, Runtime};
-use tokio_tcp::TcpStream;
+use tokio::net::TcpStream;
+use tokio::prelude::*;
 
 pub enum SubServiceCtlCmd {
     Stop,
@@ -70,11 +70,17 @@ fn start_forwarder(
     service_tx: super::TxType, 
     cfg: Arc<TunCfg>,
     domains: Vec<String>,
-    r_tx: futures::Complete<bool>,
+    r_tx: futures_03::Complete<bool>,
 ) -> SubServiceCtl {
-    let (tx, rx) = unbounded();
+    let (tx, rx) = unbounded_channel();
     let handler = std::thread::spawn(move || {
-        let mut rt = Runtime::new().unwrap();
+        let mut basic_rt = tokio::runtime::Builder::new()
+        .basic_scheduler()
+        .enable_all()
+        .build()?;
+        // let handle = rt.handle();
+        let local = tokio::task::LocalSet::new();
+
         let fut = lazy(move || {
             let forwarder = dns::Forwarder::new(service_tx, &cfg, domains);
             // thread code
@@ -106,13 +112,12 @@ fn start_forwarder(
                 Ok(())
             });
 
-            current_thread::spawn(fut);
+            tokio::task::spawn_local(fut);
 
             Ok(())
         });
 
-        rt.spawn(fut);
-        rt.run().unwrap();
+        local.block_on(&mut basic_rt, fut);
     });
 
     SubServiceCtl {
@@ -122,10 +127,16 @@ fn start_forwarder(
     }
 }
 
-fn start_xtunnel(cfg: Arc<TunCfg>, r_tx: futures::Complete<bool>) -> SubServiceCtl {
-    let (tx, rx) = unbounded();
+fn start_xtunnel(cfg: Arc<TunCfg>, r_tx: futures_03::Complete<bool>) -> SubServiceCtl {
+    let (tx, rx) = unbounded_channel();
     let handler = std::thread::spawn(move || {
-        let mut rt = Runtime::new().unwrap();
+        let mut basic_rt = tokio::runtime::Builder::new()
+        .basic_scheduler()
+        .enable_all()
+        .build()?;
+        // let handle = rt.handle();
+        let local = tokio::task::LocalSet::new();
+
         let fut = lazy(move || {
             let xtun = xport::XTunnel::new(&cfg);
             // thread code
@@ -153,13 +164,12 @@ fn start_xtunnel(cfg: Arc<TunCfg>, r_tx: futures::Complete<bool>) -> SubServiceC
                 Ok(())
             });
 
-            current_thread::spawn(fut);
+            tokio::task::spawn_local(fut);
 
             Ok(())
         });
 
-        rt.spawn(fut);
-        rt.run().unwrap();
+        local.block_on(&mut basic_rt, fut);
     });
 
     SubServiceCtl {
@@ -171,14 +181,20 @@ fn start_xtunnel(cfg: Arc<TunCfg>, r_tx: futures::Complete<bool>) -> SubServiceC
 
 fn start_reqmgr(
     cfg: Arc<TunCfg>,
-    r_tx: futures::Complete<bool>,
+    r_tx: futures_03::Complete<bool>,
     tmstubs: Vec<TunMgrStub>,
 ) -> SubServiceCtl {
     info!("[SubService]start_reqmgr, tm count:{}", tmstubs.len());
 
-    let (tx, rx) = unbounded();
+    let (tx, rx) = unbounded_channel();
     let handler = std::thread::spawn(move || {
-        let mut rt = Runtime::new().unwrap();
+        let mut basic_rt = tokio::runtime::Builder::new()
+        .basic_scheduler()
+        .enable_all()
+        .build()?;
+        // let handle = rt.handle();
+        let local = tokio::task::LocalSet::new();
+
         let fut = lazy(move || {
             let reqmgr = requests::ReqMgr::new(&cfg, tmstubs);
             // thread code
@@ -206,13 +222,12 @@ fn start_reqmgr(
                 Ok(())
             });
 
-            current_thread::spawn(fut);
+            tokio::task::spawn_local(fut);
 
             Ok(())
         });
 
-        rt.spawn(fut);
-        rt.run().unwrap();
+        local.block_on(&mut basic_rt, fut);
     });
 
     SubServiceCtl {
@@ -225,12 +240,18 @@ fn start_reqmgr(
 fn start_one_tunmgr(
     service_tx: super::TxType,
     cfg: Arc<TunCfg>,
-    r_tx: futures::Complete<bool>,
+    r_tx: futures_03::Complete<bool>,
     tunnels_count: usize,
 ) -> SubServiceCtl {
-    let (tx, rx) = unbounded();
+    let (tx, rx) = unbounded_channel();
     let handler = std::thread::spawn(move || {
-        let mut rt = Runtime::new().unwrap();
+        let mut basic_rt = tokio::runtime::Builder::new()
+        .basic_scheduler()
+        .enable_all()
+        .build()?;
+        // let handle = rt.handle();
+        let local = tokio::task::LocalSet::new();
+
         let fut = lazy(move || {
             let tunmgr = tunnels::TunMgr::new(service_tx.clone(), tunnels_count, &cfg);
             // thread code
@@ -270,13 +291,12 @@ fn start_one_tunmgr(
                 Ok(())
             });
 
-            current_thread::spawn(fut);
+            tokio::task::spawn_local(fut);
 
             Ok(())
         });
 
-        rt.spawn(fut);
-        rt.run().unwrap();
+        local.block_on(&mut basic_rt, fut);
     });
 
     SubServiceCtl {
@@ -287,11 +307,11 @@ fn start_one_tunmgr(
 }
 
 fn to_future(
-    rx: futures::Oneshot<bool>,
+    rx: futures_03::Oneshot<bool>,
     ctrl: SubServiceCtl,
 ) -> impl Future<Item = SubServiceCtl, Error = ()> {
     let fut = rx
-        .and_then(|v| if v { Ok(ctrl) } else { Err(futures::Canceled) })
+        .and_then(|v| if v { Ok(ctrl) } else { Err(futures_03::Canceled) })
         .or_else(|_| Err(()));
 
     fut
@@ -313,7 +333,7 @@ fn start_tunmgr(service_tx: super::TxType,
 
     let fut = stream
         .for_each(move |_| {
-            let (tx, rx) = futures::oneshot();
+            let (tx, rx) = futures_03::oneshot();
             let subservices = subservices.clone();
             to_future(rx, start_one_tunmgr(service_tx.clone(),
                 cfg.clone(), tx, tunnels_per_mgr)).and_then(move |ctl| {
@@ -345,7 +365,7 @@ pub fn start_subservice(
     let tunmgr_fut = start_tunmgr(service_tx.clone(), cfg.clone());
 
     let reqmgr_fut = tunmgr_fut.and_then(move |subservices| {
-        let (tx, rx) = futures::oneshot();
+        let (tx, rx) = futures_03::oneshot();
         let mut tmstubs = Vec::new();
         {
             let ss = subservices.borrow();
@@ -372,7 +392,7 @@ pub fn start_subservice(
 
     // finally start forwarder
     let forward_fut = reqmgr_fut.and_then(move |subservices| {
-        let (tx, rx) = futures::oneshot();
+        let (tx, rx) = futures_03::oneshot();
         let v = subservices.clone();
         to_future(rx, start_forwarder(service_tx.clone(),cfg2.clone(), domains, tx))
             .and_then(|ctl| {
@@ -389,7 +409,7 @@ pub fn start_subservice(
 
     // xtunnel
     let xtun_fut = forward_fut.and_then(move |subservices| {
-        let (tx, rx) = futures::oneshot();
+        let (tx, rx) = futures_03::oneshot();
         let v = subservices.clone();
         to_future(rx, start_xtunnel(cfg3.clone(), tx))
             .and_then(|ctl| {
