@@ -2,22 +2,12 @@ mod udpserv;
 pub use udpserv::*;
 mod udpsock;
 pub use udpsock::*;
-
-
-// udpx mod work for udp proxy.
-
-// use a thread to run udpx.
-// for each udp packet received, calc its address pair hash, select a tunmgr send to tunmgr.
-// tunmgr select a tunnel by that hash code, then forward to dv.
-// thus every packet with the same address pair will forward to dv via the same tunnel,
-// and dv will bind the dv udp session to that tunnel too.
-// dv also new a udp socket to send data to dst, the new socket is need cause we need to flow control
-// at each dv udp session. when no more data arrive at a dv udp session in some duration, it will be close
-// at cv, only one udp socket exists, it use the TPROXY provided by linux kernel to do udp transparent forwarding,
-// it retrieves the dst address by using IP_PKTINFO, when send udp packet it changes the source addr by using IP_PKTINFO
-// see https://docs.rs/crate/udp_sas/0.1.3/source/src/lib.rs for more information.
-
-// dv use tokio timer wheel to do udp session recycle, timer wheel is a high performance timer queue.
+mod cache;
+pub use cache::*;
+mod udpXmgr;
+pub use udpXmgr::*;
+mod ustub;
+pub use ustub::*;
 
 use std::io;
 use std::os::unix::io::RawFd;

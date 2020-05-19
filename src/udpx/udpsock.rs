@@ -18,10 +18,15 @@ use futures_03::prelude::*;
 use stream_cancel::{Trigger, Tripwire};
 use tokio::sync::mpsc;
 use std::io;
+use bytes::buf::BufMut;
+
+
+const INITIAL_RD_CAPACITY:usize = 640;
 
 pub struct UdpSocketEx {
     io: PollEvented<mio::net::UdpSocket>,
-    rawfd: RawFd
+    rawfd: RawFd,
+    rd: BytesMut,
 }
 
 impl UdpSocketEx {
@@ -33,6 +38,7 @@ impl UdpSocketEx {
         UdpSocketEx {
             io:PollEvented::new(sys).unwrap(),
             rawfd,
+            rd: BytesMut::with_capacity(INITIAL_RD_CAPACITY),
         }
     }
 
@@ -61,21 +67,37 @@ impl UdpSocketEx {
             }
         }
     }
+}
 
-    pub fn poll_send_to(
-        &self,
+impl Stream for UdpSocketEx {
+    type Item = std::result::Result<(BytesMut, SocketAddr, SocketAddr),Error>;
+
+    fn poll_next(
+        self: Pin<&mut Self>,
         cx: &mut Context<'_>,
-        buf: &[u8],
-        target: &SocketAddr,
-    ) -> Poll<io::Result<usize>> {
-        ready!(self.io.poll_write_ready(cx))?;
+    ) -> Poll<Option<Self::Item>> {
+        let pin = self.get_mut();
 
-        match self.io.get_ref().send_to(buf, target) {
-            Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
-                self.io.clear_write_ready(cx)?;
-                Poll::Pending
-            }
-            x => Poll::Ready(x),
-        }
+        pin.rd.reserve(INITIAL_RD_CAPACITY);
+
+        let (_, saddr, daddr) = unsafe {
+            // Read into the buffer without having to initialize the memory.
+            //
+            // safety: we know tokio::net::UdpSocket never reads from the memory
+            // during a recv
+            let res = {
+                let bytes = &mut *(pin.rd.bytes_mut() as *mut _ as *mut [u8]);
+                ready!(pin.poll_recv_from(cx, bytes))
+            };
+
+            let (n, saddr, daddr) = res?;
+            pin.rd.advance_mut(n);
+            (n, saddr, daddr)
+        };
+
+        let len = pin.rd.len();
+        let rd = pin.rd.split_to(len);
+        pin.rd.clear();
+        Poll::Ready(Some(Ok((rd, saddr, daddr))))
     }
 }

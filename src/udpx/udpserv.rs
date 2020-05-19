@@ -14,17 +14,17 @@ use stream_cancel::{Trigger, Tripwire};
 use tokio::sync::mpsc;
 
 type TxType = mpsc::UnboundedSender<(bytes::Bytes, std::net::SocketAddr)>;
-type LongLive = Rc<RefCell<UdpX>>;
+type LongLive = Rc<RefCell<UdpServer>>;
 
-pub struct UdpX {
+pub struct UdpServer {
     listen_addr: String,
     tx: (Option<TxType>, Option<Trigger>),
 }
 
-impl UdpX {
+impl UdpServer {
     pub fn new(addr: &str) -> LongLive {
         info!("[Udpx-Server]new server, addr:{}", addr);
-        Rc::new(RefCell::new(UdpX {
+        Rc::new(RefCell::new(UdpServer {
             listen_addr: addr.to_string(),
             tx: (None, None),
         }))
@@ -34,9 +34,8 @@ impl UdpX {
         let listen_addr = &self.listen_addr;
         let addr: SocketAddr = listen_addr.parse().map_err(|e| Error::from(e))?;
         let socket_udp = std::net::UdpSocket::bind(addr)?;
-        let a = UdpSocket::from_std(socket_udp)?;
-
-        let rawfd = a.as_raw_fd();
+ 
+        let rawfd = socket_udp.as_raw_fd();
         info!("[Udpx-Server]listener rawfd:{}", rawfd);
         // enable linux TPROXY
         let enabled = true;
@@ -45,21 +44,17 @@ impl UdpX {
         let ll2 = ll.clone();
         let ll3 = ll.clone();
 
-        let udp_framed = tokio_util::udp::UdpFramed::new(a, tokio_util::codec::BytesCodec::new());
-        let (a_sink, a_stream) = udp_framed.split();
+        let a_stream = super::UdpSocketEx::new(socket_udp);
 
-        let (tx, rx) = mpsc::unbounded_channel();
         let (trigger, tripwire) = Tripwire::new();
 
-        self.set_tx(tx, trigger);
-
-        let send_fut = rx.map(move |x|{Ok(x)}).forward(a_sink);
-
+        self.set_tx(trigger);
+    
         let receive_fut = a_stream
             .take_until(tripwire)
             .for_each(move |rr| {
                match rr {
-                    Ok((message, addr)) => {
+                    Ok((message, saddr, daddr)) => {
                         let mut rf = ll3.borrow_mut();
                         // post to manager
                         rf.on_receive_udp_msg(message, addr);
@@ -72,7 +67,7 @@ impl UdpX {
 
         // Wait for one future to complete.
         let select_fut = async move {
-            future::select(receive_fut, send_fut).await;
+            receive_fut.await;
             info!("[Udpx-Server] udp both future completed");
             let mut rf = ll2.borrow_mut();
             rf.on_udp_socket_closed();
@@ -83,8 +78,8 @@ impl UdpX {
         Ok(())
     }
 
-    fn set_tx(&mut self, tx2: TxType, trigger: Trigger) {
-        self.tx = (Some(tx2), Some(trigger));
+    fn set_tx(&mut self, trigger: Trigger) {
+        self.tx = (None, Some(trigger));
     }
 
     pub fn get_tx(&self) -> Option<TxType> {
