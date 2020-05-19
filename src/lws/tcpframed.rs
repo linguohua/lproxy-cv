@@ -63,10 +63,7 @@ where
 
     fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         if self.writing.is_some() {
-            match self.poll_flush(cx)? {
-                Poll::Ready(()) => {}
-                Poll::Pending => return Poll::Pending,
-            }
+            return self.poll_flush(cx)
         }
 
         Poll::Ready(Ok(()))
