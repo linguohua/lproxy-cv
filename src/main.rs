@@ -6,6 +6,7 @@ mod requests;
 mod service;
 mod tunnels;
 mod xport;
+mod udpx;
 
 use fs2::FileExt;
 //use futures::stream::Stream;

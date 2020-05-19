@@ -4,6 +4,8 @@ version = "0.1.8"
 authors = ["linguohua <lghchinaidea@gmail.com>"]
 edition = "2018"
 
+build = "build.rs"
+
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [profile.release]
 lto = true
@@ -19,6 +21,8 @@ tokio = { version = "0.2.21", features = ["full"] }
 tokio-util = { version = "0.3.1", features = ["codec", "udp"] }
 tokio-tls = { package = "tokio-native-tls", version = "0.1" }
 stream-cancel = "0.5.2"
+mio = "0.6"
+os_socketaddr = "0.1"
 
 bytes = "0.5.4"
 url = "2.1.1"
@@ -40,3 +44,6 @@ base64 = "0.12.1"
 #iptables = "0.2.2"
 mac_address = "1.0.3"
 protobuf = "2.14.0"
+
+[build-dependencies]
+cc = "1.0"
