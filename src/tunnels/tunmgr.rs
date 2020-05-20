@@ -1,8 +1,9 @@
+use tokio::sync::mpsc::UnboundedSender;
 use super::tunbuilder;
 use super::Tunnel;
 use super::{Request, TunStub};
 use crate::config::{TunCfg, KEEP_ALIVE_INTERVAL};
-use crate::service::{Instruction,TxType};
+use crate::service::{Instruction,TxType, SubServiceCtlCmd};
 use failure::Error;
 use log::{debug, error, info};
 use std::cell::RefCell;
@@ -12,6 +13,8 @@ use std::result::Result;
 use std::time::{Duration};
 use stream_cancel::{Trigger, Tripwire};
 use futures_03::prelude::*;
+use bytes::BytesMut;
+use std::net::SocketAddr;
 
 type TunnelItem = Option<Rc<RefCell<Tunnel>>>;
 type LongLive = Rc<RefCell<TunMgr>>;
@@ -31,6 +34,7 @@ pub struct TunMgr {
     keepalive_trigger: Option<Trigger>,
     pub token: String,
     service_tx: TxType,
+    udpx_tx: Option<UnboundedSender<SubServiceCtlCmd>>,
 }
 
 impl TunMgr {
@@ -61,6 +65,7 @@ impl TunMgr {
             request_quota: cfg.request_quota as u16,
             token,
             service_tx:service_tx,
+            udpx_tx: None,
         }))
     }
 
@@ -101,6 +106,10 @@ impl TunMgr {
         }
 
         tunnels[index] = Some(tun.clone());
+
+        if self.udpx_tx.is_some() {
+            tun.borrow_mut().set_udpx_tx(self.udpx_tx.as_ref().unwrap().clone());
+        }
 
         info!("[TunMgr]tunnel created, index:{}", index);
 
@@ -376,6 +385,39 @@ impl TunMgr {
         // send to service
         if let Err(e) = self.service_tx.send(Instruction::AccessLog(peer_addr, target_ip)){
             error!("[TunMgr]log_access unbounded_send failed:{}", e);
+        }
+    }
+
+    pub fn udp_proxy_north(&self, msg: BytesMut, src_addr: SocketAddr, dst_addr: SocketAddr, hash_code:usize) {
+        // select a tunnel, forward udp msg to dv via that tunnnel
+        let tun_idx = hash_code % self.tunnels.len();
+        
+        match self.tunnels.get(tun_idx) {
+            Some(tun_some) => {
+                match tun_some {
+                    Some(tun) => {
+                        let tun = tun.borrow();
+                        tun.udp_proxy_north(msg, src_addr, dst_addr);
+                    }
+                    None => {
+                        error!("[TunMgr]udp_proxy_north, no tunnel found at:{}", tun_idx);
+                    }
+                }
+            }
+            None => {}
+        }
+    }
+
+    pub fn set_udpx_tx(&mut self, tx: UnboundedSender<SubServiceCtlCmd>) {
+        let tunnels = &self.tunnels;
+        for t in tunnels.iter() {
+            match t {
+                Some(tun) => {
+                    let mut tun = tun.borrow_mut();
+                    tun.set_udpx_tx(tx.clone());
+                }
+                None => {}
+            }
         }
     }
 }

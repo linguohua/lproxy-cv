@@ -2,7 +2,7 @@ use tokio::time::{delay_queue, DelayQueue, Error};
 use super::UStub;
 
 use futures_03::ready;
-use std::collections::HashMap;
+use fnv::FnvHashMap as HashMap;
 use std::task::{Context, Poll};
 use std::time::Duration;
 
@@ -16,6 +16,13 @@ pub struct Cache {
 const TTL_SECS: u64 = 60;
 
 impl Cache {
+    pub fn new() ->Self {
+        Cache {
+            entries: HashMap::default(),
+            expirations: DelayQueue::new(),
+        }
+    }
+    
     fn insert(&mut self, key: CacheKey, value: UStub) {
         let delay = self.expirations
             .insert(key.clone(), Duration::from_secs(TTL_SECS));

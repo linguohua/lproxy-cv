@@ -8,10 +8,10 @@ use nix::sys::socket::setsockopt;
 use nix::sys::socket::sockopt::IpTransparent;
 
 use std::os::unix::io::AsRawFd;
-use tokio::net::{UdpSocket};
 use futures_03::prelude::*;
 use stream_cancel::{Trigger, Tripwire};
 use tokio::sync::mpsc;
+use super::LongLiveX;
 
 type TxType = mpsc::UnboundedSender<(bytes::Bytes, std::net::SocketAddr)>;
 type LongLive = Rc<RefCell<UdpServer>>;
@@ -30,7 +30,7 @@ impl UdpServer {
         }))
     }
 
-    pub fn start(&mut self, ll :LongLive) -> Result<(), Error> {
+    pub fn start(&mut self, ll :LongLive, llx: LongLiveX) -> Result<(), Error> {
         let listen_addr = &self.listen_addr;
         let addr: SocketAddr = listen_addr.parse().map_err(|e| Error::from(e))?;
         let socket_udp = std::net::UdpSocket::bind(addr)?;
@@ -42,7 +42,6 @@ impl UdpServer {
         setsockopt(rawfd, IpTransparent, &enabled).map_err(|e| Error::from(e))?;
 
         let ll2 = ll.clone();
-        let ll3 = ll.clone();
 
         let a_stream = super::UdpSocketEx::new(socket_udp);
 
@@ -55,9 +54,11 @@ impl UdpServer {
             .for_each(move |rr| {
                match rr {
                     Ok((message, saddr, daddr)) => {
-                        let mut rf = ll3.borrow_mut();
+                        //let mut rf = ll3.borrow_mut();
                         // post to manager
-                        rf.on_receive_udp_msg(message, addr);
+                        //rf.on_receive_udp_msg(message, addr);
+                        let rf = llx.borrow();
+                        rf.on_udp_msg_forward(message, saddr, daddr);
                     },
                     Err(e) => error!("[Udpx-Server] for_each failed:{}", e)
                 };
@@ -109,9 +110,5 @@ impl UdpServer {
 
     fn on_udp_socket_closed(&mut self) {
 
-    }
-
-    fn on_receive_udp_msg(&mut self, msg: BytesMut, dst_addr: std::net::SocketAddr) {
-        
     }
 }

@@ -3,6 +3,8 @@ use crate::dns;
 use crate::requests;
 use crate::tunnels;
 use crate::xport;
+use crate::udpx;
+
 use futures_03::future::lazy;
 use futures_03::prelude::*;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
@@ -13,12 +15,17 @@ use std::rc::Rc;
 use std::sync::Arc;
 use tokio::net::TcpStream;
 use futures_03::channel::oneshot;
+use bytes::BytesMut;
+use std::net::SocketAddr;
 
 pub enum SubServiceCtlCmd {
     Stop,
     TcpTunnel(TcpStream),
     DomainsUpdate(Vec<String>),
     TunCfgUpdate(Arc<TunCfg>),
+    UdpProxy((BytesMut, SocketAddr,SocketAddr, usize )),
+    UdpRecv(((std::io::Cursor<Vec<u8>>, SocketAddr, SocketAddr))),
+    SetUdpTx(UnboundedSender<SubServiceCtlCmd>),
 }
 
 pub enum SubServiceType {
@@ -26,6 +33,7 @@ pub enum SubServiceType {
     RegMgr,
     TunMgr,
     XTunnel,
+    UdpX,
 }
 
 impl fmt::Display for SubServiceCtlCmd {
@@ -36,6 +44,9 @@ impl fmt::Display for SubServiceCtlCmd {
             SubServiceCtlCmd::TcpTunnel(_) => s = "TcpTunnel",
             SubServiceCtlCmd::DomainsUpdate(_) => s = "DomainUpdate",
             SubServiceCtlCmd::TunCfgUpdate(_) => s = "TunCfgUpdate",
+            SubServiceCtlCmd::UdpProxy(_) => s = "UdpProxy", 
+            SubServiceCtlCmd::UdpRecv(_) => s = "UdpRecv",
+            SubServiceCtlCmd::SetUdpTx(_) => s = "SetUdpTx",
         }
         write!(f, "({})", s)
     }
@@ -49,6 +60,7 @@ impl fmt::Display for SubServiceType {
             SubServiceType::RegMgr => s = "RegMgr",
             SubServiceType::TunMgr => s = "TunMgr",
             SubServiceType::XTunnel => s = "XTunnel",
+            SubServiceType::UdpX => s = "UdpX",
         }
         write!(f, "({})", s)
     }
@@ -230,6 +242,67 @@ fn start_reqmgr(
     }
 }
 
+fn start_udpx(
+    cfg: Arc<TunCfg>,
+    r_tx: oneshot::Sender<bool>,
+    tmstubs: Vec<TunMgrStub>,
+) -> SubServiceCtl {
+    info!("[SubService]start_udpx, tm count:{}", tmstubs.len());
+
+    let (tx, rx) = unbounded_channel();
+    let tx2 = tx.clone();
+    let handler = std::thread::spawn(move || {
+        let mut basic_rt = tokio::runtime::Builder::new()
+        .basic_scheduler()
+        .enable_all()
+        .build().unwrap();
+        // let handle = rt.handle();
+        let local = tokio::task::LocalSet::new();
+
+        let fut = lazy(move |_| {
+            let udpx = udpx::UdpXMgr::new(&cfg, tmstubs, tx);
+            // thread code
+            if let Err(e) = udpx.borrow_mut().init(udpx.clone()) {
+                error!("[SubService]udpx start failed:{}", e);
+
+                r_tx.send(false).unwrap();
+                return;
+            }
+
+            r_tx.send(true).unwrap();
+
+            // wait control signals
+            let fut = rx.for_each(move |cmd| {
+                match cmd {
+                    SubServiceCtlCmd::Stop => {
+                        let f = udpx.clone();
+                        f.borrow_mut().stop();
+                    }
+                    SubServiceCtlCmd::UdpRecv((msg, src_addr, dst_addr)) => {
+                        let f = udpx.clone();
+                        f.borrow_mut().on_udp_proxy_south(msg, src_addr, dst_addr);
+                    }
+                    _ => {
+                        error!("[SubService]udpx unknown ctl cmd:{}", cmd);
+                    }
+                }
+
+                future::ready(())
+            });
+
+            tokio::task::spawn_local(fut);
+        });
+
+        local.block_on(&mut basic_rt, fut);
+    });
+
+    SubServiceCtl {
+        handler: Some(handler),
+        ctl_tx: Some(tx2),
+        sstype: SubServiceType::UdpX,
+    }
+}
+
 fn start_one_tunmgr(
     service_tx: super::TxType,
     cfg: Arc<TunCfg>,
@@ -270,6 +343,14 @@ fn start_one_tunmgr(
                     SubServiceCtlCmd::TunCfgUpdate(tuncfg) => {
                         let f = tunmgr.clone();
                         f.borrow_mut().update_tuncfg(&tuncfg);
+                    }
+                    SubServiceCtlCmd::UdpProxy((msg, src_addr, dst_addr, hash_code)) => {
+                        let f = tunmgr.clone();
+                        f.borrow().udp_proxy_north(msg, src_addr, dst_addr, hash_code);
+                    }
+                    SubServiceCtlCmd::SetUdpTx(tx) => {
+                        let f = tunmgr.clone();
+                        f.borrow_mut().set_udpx_tx(tx);
                     }
                     _ => {
                         error!("[SubService]tunmgr unknown ctl cmd:{}", cmd);

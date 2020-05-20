@@ -7,15 +7,18 @@ use byte::*;
 use tokio::sync::mpsc::UnboundedSender;
 use log::{error, info};
 use nix::sys::socket::{shutdown, Shutdown};
-use std::net::IpAddr;
-use std::net::IpAddr::{V4, V6};
+use std::net::{IpAddr::{self, V4, V6}, Ipv6Addr, Ipv4Addr};
 use std::os::unix::io::RawFd;
 use std::time::Instant;
-
+use bytes::BytesMut;
+use std::net::SocketAddr;
+use crate::service::SubServiceCtlCmd;
 use crate::lws::{RMessage, WMessage};
 
+type UdpxTxType = UnboundedSender<SubServiceCtlCmd>;
 pub struct Tunnel {
     pub tx: UnboundedSender<WMessage>,
+    pub udpx_tx: Option<UdpxTxType>,
     pub index: usize,
 
     pub requests: Reqq,
@@ -49,6 +52,7 @@ impl Tunnel {
         let capacity = cap;
         Tunnel {
             tx: tx,
+            udpx_tx:None,
             index: idx,
             requests: Reqq::new(capacity),
             capacity: capacity as u16,
@@ -82,6 +86,9 @@ impl Tunnel {
             }
             Cmd::Pong => {
                 self.on_pong(bs);
+            }
+            Cmd::UdpX => {
+                self.on_udpx_south(msg);
             }
             Cmd::ReqData => {
                 let th = THeader::read_from(&bs[..]);
@@ -465,5 +472,130 @@ impl Tunnel {
             }
             _ => {}
         }
+    }
+
+    pub fn set_udpx_tx(&mut self, tx: UdpxTxType) {
+        self.udpx_tx = Some(tx);
+    }
+
+    pub fn udp_proxy_north(&self, msg: BytesMut, src_addr: SocketAddr, dst_addr: SocketAddr) {
+        // format udp forward packet
+        let mut content_size = msg.len();
+        if src_addr.is_ipv4() {
+            content_size += 7; // 1 + 2 + 4
+        } else {
+            content_size += 19; // 1 + 2 + 16
+        }
+        if dst_addr.is_ipv4() {
+            content_size += 7; // 1 + 2 + 4
+        } else {
+            content_size += 19; // 1 + 2 + 16
+        }
+        let hsize = 2 + 1 + THEADER_SIZE;
+        let total = hsize + content_size;
+
+        let mut buf = vec![0; total];
+        let bs = &mut buf[..];
+        let offset = &mut 0;
+        bs.write_with::<u16>(offset, total as u16, LE).unwrap(); // length
+        bs.write_with::<u8>(offset, Cmd::UdpX as u8, LE).unwrap(); // cmd
+        *offset = Tunnel::write_socketaddr(bs, *offset, src_addr);
+        *offset = Tunnel::write_socketaddr(bs, *offset, dst_addr);
+        let bss = &mut buf[*offset..];
+        bss.copy_from_slice(&msg);
+
+        // websocket message
+        let wmsg = WMessage::new(buf, 0);
+
+        let r = self.tx.send(wmsg);
+        match r {
+            Err(e) => {
+                error!("[Tunnel]{} tunnel on_udp_proxy_forward error:{}", self.index, e);
+            }
+            _ => {
+            }
+        }
+    }
+
+    fn write_socketaddr(bs: &mut [u8], offset: usize, addr : SocketAddr) -> usize {
+        let mut new_offset = offset;
+        let new_offset = &mut new_offset;
+        bs.write_with::<u16>(new_offset, addr.port() as u16, LE).unwrap(); // port
+
+        match addr.ip() {
+            V4(v4) => {
+                bs.write_with::<u8>(new_offset, 0 as u8, LE).unwrap(); // 0, ipv4
+                let ipbytes = v4.octets();
+                for b in ipbytes.iter() {
+                    bs.write_with::<u8>(new_offset, *b, LE).unwrap(); // ip
+                }
+            }
+            V6(v6) => {
+                bs.write_with::<u8>(new_offset, 1 as u8, LE).unwrap(); // 0, ipv6
+                let ipbytes = v6.segments();
+                for b in ipbytes.iter() {
+                    bs.write_with::<u16>(new_offset, *b, LE).unwrap(); // ip
+                }
+            }
+        }
+
+        *new_offset
+    }
+
+    fn on_udpx_south(&self, mut msg: RMessage) {
+        if self.udpx_tx.is_none() {
+            error!("[Tunnel]{} tunnel on_udpx_msg error, no udpx_tx valid", self.index);
+            return
+        }
+
+        let offset = &mut 0;
+        let bsv = msg.buf.take().unwrap();
+        let bs = &bsv[3..]; // skip the length and cmd
+
+        let src_addr = Tunnel::read_socketaddr(bs, offset);
+        let dst_addr = Tunnel::read_socketaddr(bs, offset);
+
+        let  mut cursor = std::io::Cursor::new(bsv);
+        cursor.set_position(*offset as u64);
+
+        // forward to udpx
+        let cmd = SubServiceCtlCmd::UdpRecv((cursor, src_addr, dst_addr));
+        let r = self.udpx_tx.as_ref().unwrap().send(cmd);
+        match r {
+            Err(e) => {
+                error!("[Tunnel]{} tunnel on_udpx_msg send error:{}", self.index, e);
+            }
+            _ => {
+            }
+        }
+    }
+
+    fn read_socketaddr(bs: &[u8], offset: &mut usize) -> SocketAddr {
+        let port = bs.read_with::<u16>(offset, LE).unwrap();
+        let addr_type = bs.read_with::<u8>(offset, LE).unwrap();
+        let ipbytes = if addr_type == 0 {
+            // ipv4
+            let a = bs.read_with::<u8>(offset, LE).unwrap(); // 4 bytes
+            let b = bs.read_with::<u8>(offset, LE).unwrap(); // 4 bytes
+            let c = bs.read_with::<u8>(offset, LE).unwrap(); // 4 bytes
+            let d = bs.read_with::<u8>(offset, LE).unwrap(); // 4 bytes
+            let ip = Ipv4Addr::new(a, b, c, d);
+            IpAddr::V4(ip)
+        } else {
+            // ipv6
+            let a = bs.read_with::<u16>(offset, LE).unwrap(); // 16 bytes
+            let b = bs.read_with::<u16>(offset, LE).unwrap(); // 16 bytes
+            let c = bs.read_with::<u16>(offset, LE).unwrap(); // 16 bytes
+            let d = bs.read_with::<u16>(offset, LE).unwrap(); // 16 bytes
+            let e = bs.read_with::<u16>(offset, LE).unwrap(); // 16 bytes
+            let f = bs.read_with::<u16>(offset, LE).unwrap(); // 16 bytes
+            let g = bs.read_with::<u16>(offset, LE).unwrap(); // 16 bytes
+            let h = bs.read_with::<u16>(offset, LE).unwrap(); // 16 bytes
+
+            let ip = Ipv6Addr::new(a, b, c, d, e, f, g, h);
+            IpAddr::V6(ip)
+        };
+
+        SocketAddr::from((ipbytes, port))
     }
 }
