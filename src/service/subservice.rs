@@ -24,7 +24,7 @@ pub enum SubServiceCtlCmd {
     DomainsUpdate(Vec<String>),
     TunCfgUpdate(Arc<TunCfg>),
     UdpProxy((BytesMut, SocketAddr,SocketAddr, usize )),
-    UdpRecv(((std::io::Cursor<Vec<u8>>, SocketAddr, SocketAddr))),
+    UdpRecv((std::io::Cursor<Vec<u8>>, SocketAddr, SocketAddr)),
     SetUdpTx(UnboundedSender<SubServiceCtlCmd>),
 }
 
@@ -72,6 +72,7 @@ pub struct SubServiceCtl {
     pub sstype: SubServiceType,
 }
 
+#[derive(Clone)]
 pub struct TunMgrStub {
     pub ctl_tx: UnboundedSender<SubServiceCtlCmd>,
 }
@@ -468,6 +469,7 @@ pub async fn start_subservice(
                 tmstubs.push(TunMgrStub { ctl_tx: tx });
             }
         }
+        let tmstubs2 = tmstubs.clone();
 
         match to_future(rx, start_reqmgr(cfg.clone(), tx, tmstubs)).await {
             Ok(ctl) => subservices.borrow_mut().push(ctl),
@@ -476,6 +478,12 @@ pub async fn start_subservice(
         
         let (tx, rx) = oneshot::channel();
         match to_future(rx, start_forwarder(service_tx.clone(),cfg2.clone(), domains, tx)).await {
+            Ok(ctl) => subservices.borrow_mut().push(ctl),
+            Err(_) => return Err(subservices),
+        }
+
+        let (tx, rx) = oneshot::channel();
+        match to_future(rx, start_udpx(cfg2.clone(), tx, tmstubs2)).await {
             Ok(ctl) => subservices.borrow_mut().push(ctl),
             Err(_) => return Err(subservices),
         }

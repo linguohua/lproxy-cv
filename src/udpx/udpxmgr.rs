@@ -13,6 +13,7 @@ pub type LongLiveX = Rc<RefCell<UdpXMgr>>;
 pub struct UdpXMgr {
     tmstubs: Vec<TunMgrStub>,
     ctl_tx: UnboundedSender<SubServiceCtlCmd>,
+    server: Rc<RefCell<super::UdpServer>>,
 }
 
 impl UdpXMgr {
@@ -20,22 +21,37 @@ impl UdpXMgr {
         info!("[UdpXMgr]new UdpXMgr");
         Rc::new(RefCell::new(UdpXMgr {
             tmstubs,
-            ctl_tx
+            ctl_tx,
+            server: super::UdpServer::new("127.0.0.1:5555"),
         }))
     }
 
     pub fn init(&self, s: LongLiveX) -> Result<(), Error> {
-        info!("[ReqMgr]init UdpXMgr");
+        info!("[UdpXMgr]init UdpXMgr");
         // set tx to each tm
         for tm in self.tmstubs.iter() {
-            tm.ctl_tx.send(SubServiceCtlCmd::SetUdpTx(self.ctl_tx.clone()));
+            match tm.ctl_tx.send(SubServiceCtlCmd::SetUdpTx(self.ctl_tx.clone())) {
+                Err(e) => {
+                    error!("[UdpXMgr]init UdpXMgr error, send SetUpdTx failed:{}", e);
+                }
+                _ => {}
+            }
         }
+
+        self.server.borrow_mut().start(s.clone())?;
 
         Ok(())
     }
 
     pub fn stop(&mut self) {
         self.tmstubs.clear();
+
+        let mut s = self.server.borrow_mut();
+        s.stop();
+    }
+
+    pub fn on_udp_server_closed(&mut self) {
+
     }
 
     pub fn calc_hash_code(src_addr: SocketAddr, dst_addr: SocketAddr) -> usize {
@@ -63,6 +79,6 @@ impl UdpXMgr {
     }
 
     pub fn on_udp_proxy_south(&mut self, msg: std::io::Cursor<Vec<u8>>, src_addr:SocketAddr, dst_addr: SocketAddr) {
-        
+
     }
 }

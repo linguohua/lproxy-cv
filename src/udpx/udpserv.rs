@@ -13,12 +13,11 @@ use stream_cancel::{Trigger, Tripwire};
 use tokio::sync::mpsc;
 use super::LongLiveX;
 
-type TxType = mpsc::UnboundedSender<(bytes::Bytes, std::net::SocketAddr)>;
 type LongLive = Rc<RefCell<UdpServer>>;
 
 pub struct UdpServer {
     listen_addr: String,
-    tx: (Option<TxType>, Option<Trigger>),
+    tx: Option<Trigger>,
 }
 
 impl UdpServer {
@@ -26,11 +25,11 @@ impl UdpServer {
         info!("[Udpx-Server]new server, addr:{}", addr);
         Rc::new(RefCell::new(UdpServer {
             listen_addr: addr.to_string(),
-            tx: (None, None),
+            tx: None,
         }))
     }
 
-    pub fn start(&mut self, ll :LongLive, llx: LongLiveX) -> Result<(), Error> {
+    pub fn start(&mut self, llx: LongLiveX) -> Result<(), Error> {
         let listen_addr = &self.listen_addr;
         let addr: SocketAddr = listen_addr.parse().map_err(|e| Error::from(e))?;
         let socket_udp = std::net::UdpSocket::bind(addr)?;
@@ -41,14 +40,12 @@ impl UdpServer {
         let enabled = true;
         setsockopt(rawfd, IpTransparent, &enabled).map_err(|e| Error::from(e))?;
 
-        let ll2 = ll.clone();
-
         let a_stream = super::UdpSocketEx::new(socket_udp);
 
         let (trigger, tripwire) = Tripwire::new();
+        self.set_trigger(trigger);
+        let llx2 = llx.clone();
 
-        self.set_tx(trigger);
-    
         let receive_fut = a_stream
             .take_until(tripwire)
             .for_each(move |rr| {
@@ -70,8 +67,8 @@ impl UdpServer {
         let select_fut = async move {
             receive_fut.await;
             info!("[Udpx-Server] udp both future completed");
-            let mut rf = ll2.borrow_mut();
-            rf.on_udp_socket_closed();
+            let mut rf = llx2.borrow_mut();
+            rf.on_udp_server_closed();
         };
 
         tokio::task::spawn_local(select_fut);
@@ -79,36 +76,11 @@ impl UdpServer {
         Ok(())
     }
 
-    fn set_tx(&mut self, trigger: Trigger) {
-        self.tx = (None, Some(trigger));
-    }
-
-    pub fn get_tx(&self) -> Option<TxType> {
-        let tx = &self.tx;
-        let tx = &tx.0;
-        match tx {
-            Some(tx) => Some(tx.clone()),
-            None => None,
-        }
+    fn set_trigger(&mut self, trigger: Trigger) {
+        self.tx = Some(trigger);
     }
 
     pub fn stop(&mut self) {
-        self.tx = (None, None);
-    }
-
-    pub fn reply(&self, bm: bytes::Bytes, sa: SocketAddr) {
-        match self.get_tx() {
-            Some(tx) => match tx.send((bm, sa)) {
-                Err(e) => {
-                    error!("[Udpx-Server]unbounded_send error:{}", e);
-                }
-                _ => {}
-            },
-            None => {}
-        }
-    }
-
-    fn on_udp_socket_closed(&mut self) {
-
+        self.tx = None;
     }
 }

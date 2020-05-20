@@ -4,8 +4,8 @@ mod udpsock;
 pub use udpsock::*;
 mod cache;
 pub use cache::*;
-mod udpXmgr;
-pub use udpXmgr::*;
+mod udpxmgr;
+pub use udpxmgr::*;
 mod ustub;
 pub use ustub::*;
 
