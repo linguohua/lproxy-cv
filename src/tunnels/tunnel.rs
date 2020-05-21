@@ -500,8 +500,8 @@ impl Tunnel {
         let offset = &mut 0;
         bs.write_with::<u16>(offset, total as u16, LE).unwrap(); // length
         bs.write_with::<u8>(offset, Cmd::UdpX as u8, LE).unwrap(); // cmd
-        *offset = Tunnel::write_socketaddr(bs, *offset, src_addr);
-        *offset = Tunnel::write_socketaddr(bs, *offset, dst_addr);
+        *offset = Tunnel::write_socketaddr(bs, *offset, &src_addr);
+        *offset = Tunnel::write_socketaddr(bs, *offset, &dst_addr);
         let bss = &mut buf[*offset..];
         bss.copy_from_slice(&msg);
 
@@ -518,7 +518,7 @@ impl Tunnel {
         }
     }
 
-    fn write_socketaddr(bs: &mut [u8], offset: usize, addr : SocketAddr) -> usize {
+    fn write_socketaddr(bs: &mut [u8], offset: usize, addr : &SocketAddr) -> usize {
         let mut new_offset = offset;
         let new_offset = &mut new_offset;
         bs.write_with::<u16>(new_offset, addr.port() as u16, LE).unwrap(); // port
