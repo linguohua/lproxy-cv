@@ -1,6 +1,6 @@
 use super::Server;
 use crate::config::TunCfg;
-use crate::config::{LOCAL_SERVER, LOCAL_SERVER_PORT};
+use crate::config::{LOCAL_SERVER, LOCAL_TPROXY_SERVER_PORT};
 use crate::service::SubServiceCtlCmd;
 use crate::service::TunMgrStub;
 use failure::Error;
@@ -24,8 +24,8 @@ impl ReqMgr {
     pub fn new(_cfg: &TunCfg, tmstubs: Vec<TunMgrStub>) -> LongLive {
         info!("[ReqMgr]new ReqMgr");
         Rc::new(RefCell::new(ReqMgr {
-            server: Server::new(LOCAL_SERVER, LOCAL_SERVER_PORT),
-            server6: Server::new("::1", LOCAL_SERVER_PORT),
+            server: Server::new(LOCAL_SERVER, LOCAL_TPROXY_SERVER_PORT),
+            server6: Server::new("::1", LOCAL_TPROXY_SERVER_PORT),
             tmstubs: tmstubs,
             tmindex: 0,
             accepted: 0,

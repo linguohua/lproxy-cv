@@ -7,7 +7,7 @@ use super::LocalResolver;
 use super::UdpServer;
 use crate::config::{
     TunCfg, IPSET_NETHASH_TABLE_NULL, IPSET_TABLE6_NULL, IPSET_TABLE_NULL, KEEP_ALIVE_INTERVAL,
-    LOCAL_SERVER, LOCAL_SERVER_PORT,
+    LOCAL_SERVER, LOCAL_DNS_SERVER_PORT,
 };
 use failure::Error;
 use log::{debug, error, info};
@@ -63,7 +63,7 @@ impl Forwarder {
 
         info!("[Forwarder]insert {} domain into domap", domain_array.len());
 
-        let local_addr = format!("{}:{}", LOCAL_SERVER, LOCAL_SERVER_PORT);
+        let local_addr = format!("{}:{}", LOCAL_SERVER, LOCAL_DNS_SERVER_PORT);
         let dns_server = UdpServer::new(&local_addr);
         let token = cfg.token.to_string();
         Rc::new(RefCell::new(Forwarder {

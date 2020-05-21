@@ -9,7 +9,7 @@ use bytes::BytesMut;
 use crate::config::TunCfg;
 use failure::Error;
 use super::{LongLiveC,UStub, Cache, UdpServer};
-use crate::config::{LOCAL_SERVER, LOCAL_SERVER_PORT};
+use crate::config::{LOCAL_SERVER, LOCAL_TPROXY_SERVER_PORT};
 
 pub type LongLiveX = Rc<RefCell<UdpXMgr>>;
 pub struct UdpXMgr {
@@ -26,8 +26,8 @@ impl UdpXMgr {
         Rc::new(RefCell::new(UdpXMgr {
             tmstubs,
             ctl_tx,
-            server: UdpServer::new(format!("{}:{}", LOCAL_SERVER, LOCAL_SERVER_PORT)),
-            server6:UdpServer::new(format!("::1:{}", LOCAL_SERVER_PORT)),
+            server: UdpServer::new(format!("{}:{}", LOCAL_SERVER, LOCAL_TPROXY_SERVER_PORT)),
+            server6:UdpServer::new(format!("::1:{}", LOCAL_TPROXY_SERVER_PORT)),
             cache:  Cache::new(),
         }))
     }
