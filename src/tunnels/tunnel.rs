@@ -492,7 +492,7 @@ impl Tunnel {
         } else {
             content_size += 19; // 1 + 2 + 16
         }
-        let hsize = 2 + 1 + THEADER_SIZE;
+        let hsize = 2 + 1;
         let total = hsize + content_size;
 
         let mut buf = vec![0; total];
@@ -556,7 +556,7 @@ impl Tunnel {
         let src_addr = Tunnel::read_socketaddr(bs, offset);
         let dst_addr = Tunnel::read_socketaddr(bs, offset);
 
-        let skip = *offset;
+        let skip = 3 + *offset;
         let mut bb = bytes::Bytes::from(bsv);
         bb.advance(skip as usize);
 
