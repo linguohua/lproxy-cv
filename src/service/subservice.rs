@@ -24,7 +24,7 @@ pub enum SubServiceCtlCmd {
     DomainsUpdate(Vec<String>),
     TunCfgUpdate(Arc<TunCfg>),
     UdpProxy((BytesMut, SocketAddr,SocketAddr, usize )),
-    UdpRecv((std::io::Cursor<Vec<u8>>, SocketAddr, SocketAddr)),
+    UdpRecv((bytes::Bytes, SocketAddr, SocketAddr)),
     SetUdpTx(UnboundedSender<SubServiceCtlCmd>),
 }
 
@@ -281,7 +281,7 @@ fn start_udpx(
                     }
                     SubServiceCtlCmd::UdpRecv((msg, src_addr, dst_addr)) => {
                         let f = udpx.clone();
-                        f.borrow_mut().on_udp_proxy_south(msg, src_addr, dst_addr);
+                        f.borrow_mut().on_udp_proxy_south(udpx.clone(), msg, src_addr, dst_addr);
                     }
                     _ => {
                         error!("[SubService]udpx unknown ctl cmd:{}", cmd);

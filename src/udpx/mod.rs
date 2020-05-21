@@ -24,6 +24,9 @@ extern {
                  src: *mut libc::sockaddr, src_len: libc::socklen_t,
                  dst: *mut libc::sockaddr, dst_len: libc::socklen_t,
                  ) -> libc::ssize_t;
+
+
+    fn udp_sas_socket(src: *const libc::sockaddr, src_len: libc::socklen_t) -> libc::c_int;
 }
 
 use self::udp_sas_IP_RECVORIGDSTADDR as IP_RECVORIGDSTADDR;
@@ -93,5 +96,16 @@ pub fn recv_sas(socket: RawFd, buf: &mut [u8])
         Err(io::Error::last_os_error())
     } else {
         Ok((nb as usize, src.into(), dst.into()))
+    }
+}
+
+pub fn sas_socket(bind_addr: &SocketAddr) -> std::result::Result<RawFd, io::Error> {
+    let dst : OsSocketAddr = (*bind_addr).into();
+    let rawfd = unsafe { udp_sas_socket(dst.as_ptr(), dst.len() as libc::socklen_t)};
+
+    if rawfd < 0 {
+        Err(io::Error::last_os_error())
+    } else {
+        Ok(rawfd)
     }
 }

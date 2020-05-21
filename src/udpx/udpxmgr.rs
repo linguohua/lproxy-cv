@@ -8,12 +8,14 @@ use crate::service::{TunMgrStub,SubServiceCtlCmd};
 use bytes::BytesMut;
 use crate::config::TunCfg;
 use failure::Error;
+use super::{LongLiveC,UStub, Cache, UdpServer};
 
 pub type LongLiveX = Rc<RefCell<UdpXMgr>>;
 pub struct UdpXMgr {
     tmstubs: Vec<TunMgrStub>,
     ctl_tx: UnboundedSender<SubServiceCtlCmd>,
     server: Rc<RefCell<super::UdpServer>>,
+    cache: LongLiveC,
 }
 
 impl UdpXMgr {
@@ -22,7 +24,8 @@ impl UdpXMgr {
         Rc::new(RefCell::new(UdpXMgr {
             tmstubs,
             ctl_tx,
-            server: super::UdpServer::new("127.0.0.1:5555"),
+            server: UdpServer::new("127.0.0.1:5555"),
+            cache:  Cache::new(),
         }))
     }
 
@@ -48,10 +51,13 @@ impl UdpXMgr {
 
         let mut s = self.server.borrow_mut();
         s.stop();
+
+        let mut s = self.cache.borrow_mut();
+        s.cleanup();
     }
 
     pub fn on_udp_server_closed(&mut self) {
-
+        // TODO: rebuild udp server
     }
 
     pub fn calc_hash_code(src_addr: SocketAddr, dst_addr: SocketAddr) -> usize {
@@ -78,7 +84,37 @@ impl UdpXMgr {
         }
     }
 
-    pub fn on_udp_proxy_south(&mut self, msg: std::io::Cursor<Vec<u8>>, src_addr:SocketAddr, dst_addr: SocketAddr) {
+    pub fn on_udp_proxy_south(&mut self, lx:LongLiveX, msg: bytes::Bytes, src_addr:SocketAddr, dst_addr: SocketAddr) {
+        let cache: &mut Cache = &mut self.cache.borrow_mut();
+        let mut stub = cache.get(&src_addr);
+        if stub.is_none() {
+            // build new stub
+            self.build_ustub(lx, cache, &src_addr);
+            stub = cache.get(&src_addr);
+        }
 
+        match stub {
+            Some(stub) => {
+                stub.on_udp_proxy_south(msg, dst_addr);
+            }
+            None => {
+                error!("[UdpXMgr] on_udp_proxy_south failed, no stub found");
+            }
+        }
+    }
+
+    fn build_ustub(&self, lx:LongLiveX, c: &mut Cache, src_addr: &SocketAddr) {
+        match UStub::new(src_addr, lx) {
+            Ok(ustub) => {
+                c.insert(self.cache.clone(), *src_addr, ustub);
+            }
+            Err(e) => {
+                error!("[UdpXMgr] build_ustub failed:{}", e);
+            }
+        }
+    }
+
+    pub fn on_ustub_closed(&mut self, src_addr: &SocketAddr) {
+        self.cache.borrow_mut().remove(src_addr);
     }
 }

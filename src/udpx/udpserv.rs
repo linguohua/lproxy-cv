@@ -1,4 +1,3 @@
-use bytes::BytesMut;
 use failure::Error;
 use log::{error, info};
 use std::cell::RefCell;
@@ -6,11 +5,9 @@ use std::net::SocketAddr;
 use std::rc::Rc;
 use nix::sys::socket::setsockopt;
 use nix::sys::socket::sockopt::IpTransparent;
-
 use std::os::unix::io::AsRawFd;
 use futures_03::prelude::*;
 use stream_cancel::{Trigger, Tripwire};
-use tokio::sync::mpsc;
 use super::LongLiveX;
 
 type LongLive = Rc<RefCell<UdpServer>>;

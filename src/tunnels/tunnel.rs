@@ -14,6 +14,7 @@ use bytes::BytesMut;
 use std::net::SocketAddr;
 use crate::service::SubServiceCtlCmd;
 use crate::lws::{RMessage, WMessage};
+use bytes::Buf;
 
 type UdpxTxType = UnboundedSender<SubServiceCtlCmd>;
 pub struct Tunnel {
@@ -555,11 +556,12 @@ impl Tunnel {
         let src_addr = Tunnel::read_socketaddr(bs, offset);
         let dst_addr = Tunnel::read_socketaddr(bs, offset);
 
-        let  mut cursor = std::io::Cursor::new(bsv);
-        cursor.set_position(*offset as u64);
+        let skip = *offset;
+        let mut bb = bytes::Bytes::from(bsv);
+        bb.advance(skip as usize);
 
         // forward to udpx
-        let cmd = SubServiceCtlCmd::UdpRecv((cursor, src_addr, dst_addr));
+        let cmd = SubServiceCtlCmd::UdpRecv((bb, src_addr, dst_addr));
         let r = self.udpx_tx.as_ref().unwrap().send(cmd);
         match r {
             Err(e) => {
