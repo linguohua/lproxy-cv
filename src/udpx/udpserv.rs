@@ -18,10 +18,10 @@ pub struct UdpServer {
 }
 
 impl UdpServer {
-    pub fn new(addr: &str) -> LongLive {
+    pub fn new(addr: String) -> LongLive {
         info!("[Udpx-Server]new server, addr:{}", addr);
         Rc::new(RefCell::new(UdpServer {
-            listen_addr: addr.to_string(),
+            listen_addr: addr,
             tx: None,
         }))
     }

@@ -9,12 +9,14 @@ use bytes::BytesMut;
 use crate::config::TunCfg;
 use failure::Error;
 use super::{LongLiveC,UStub, Cache, UdpServer};
+use crate::config::{LOCAL_SERVER, LOCAL_SERVER_PORT};
 
 pub type LongLiveX = Rc<RefCell<UdpXMgr>>;
 pub struct UdpXMgr {
     tmstubs: Vec<TunMgrStub>,
     ctl_tx: UnboundedSender<SubServiceCtlCmd>,
     server: Rc<RefCell<super::UdpServer>>,
+    server6: Rc<RefCell<super::UdpServer>>,
     cache: LongLiveC,
 }
 
@@ -24,7 +26,8 @@ impl UdpXMgr {
         Rc::new(RefCell::new(UdpXMgr {
             tmstubs,
             ctl_tx,
-            server: UdpServer::new("127.0.0.1:5555"),
+            server: UdpServer::new(format!("{}:{}", LOCAL_SERVER, LOCAL_SERVER_PORT)),
+            server6:UdpServer::new(format!("::1:{}", LOCAL_SERVER_PORT)),
             cache:  Cache::new(),
         }))
     }
@@ -42,6 +45,7 @@ impl UdpXMgr {
         }
 
         self.server.borrow_mut().start(s.clone())?;
+        self.server6.borrow_mut().start(s.clone())?;
 
         Ok(())
     }
@@ -51,7 +55,8 @@ impl UdpXMgr {
 
         let mut s = self.server.borrow_mut();
         s.stop();
-
+        let mut s = self.server6.borrow_mut();
+        s.stop();
         let mut s = self.cache.borrow_mut();
         s.cleanup();
     }
