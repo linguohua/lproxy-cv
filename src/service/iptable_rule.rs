@@ -9,9 +9,14 @@ pub fn set_iptables_rules() {
             iptables -t mangle -A LPROXY_TCP -p tcp -j TPROXY --on-port 5000 --on-ip 127.0.0.1 --tproxy-mark 0x01/0x01;\
             iptables -t mangle -I PREROUTING -p tcp -m set --match-set LPROXYN dst -j LPROXY_TCP;\
             iptables -t mangle -I PREROUTING -p tcp -m set --match-set LPROXY dst -j LPROXY_TCP;\
+            iptables -t mangle -A LPROXY_TCP -p udp -j TPROXY --on-port 5000 --on-ip 127.0.0.1 --tproxy-mark 0x01/0x01;\
+            iptables -t mangle -I PREROUTING -p udp -m set --match-set LPROXYN dst -j LPROXY_TCP;\
+            iptables -t mangle -I PREROUTING -p udp -m set --match-set LPROXY dst -j LPROXY_TCP;\
             ip6tables -t mangle -N LPROXY_TCP;\
             ip6tables -t mangle -A LPROXY_TCP -p tcp -j TPROXY --on-port 5000 --on-ip ::1 --tproxy-mark 0x01/0x01;\
-            ip6tables -t mangle -I PREROUTING -p tcp -m set --match-set LPROXY6 dst -j LPROXY_TCP;";
+            ip6tables -t mangle -I PREROUTING -p tcp -m set --match-set LPROXY6 dst -j LPROXY_TCP;\
+            ip6tables -t mangle -A LPROXY_TCP -p udp -j TPROXY --on-port 5000 --on-ip ::1 --tproxy-mark 0x01/0x01;\
+            ip6tables -t mangle -I PREROUTING -p udp -m set --match-set LPROXY6 dst -j LPROXY_TCP;";
 
     // iptables -t mangle -N DIVERT;\
     // iptables -t mangle -A DIVERT -j MARK --set-mark 1;\
@@ -29,6 +34,9 @@ pub fn unset_iptables_rules() {
         "iptables -t mangle -D PREROUTING -p tcp -m set --match-set LPROXY dst -j LPROXY_TCP;\
          iptables -t mangle -D PREROUTING -p tcp -m set --match-set LPROXYN dst -j LPROXY_TCP;\
          ip6tables -t mangle -D PREROUTING -p tcp -m set --match-set LPROXY6 dst -j LPROXY_TCP;\
+         iptables -t mangle -D PREROUTING -p udp -m set --match-set LPROXY dst -j LPROXY_TCP;\
+         iptables -t mangle -D PREROUTING -p udp -m set --match-set LPROXYN dst -j LPROXY_TCP;\
+         ip6tables -t mangle -D PREROUTING -p udp -m set --match-set LPROXY6 dst -j LPROXY_TCP;\
          iptables -t mangle -F LPROXY_TCP;\
          iptables -t mangle -X LPROXY_TCP;\
          ip6tables -t mangle -F LPROXY_TCP;\
@@ -60,7 +68,9 @@ pub fn set_iptables_rules_for_global() {
             iptables -t mangle -A LPROXY_TCP -d 224.0.0.0/4 -j RETURN;\
             iptables -t mangle -A LPROXY_TCP -d 240.0.0.0/4 -j RETURN;\
             iptables -t mangle -A LPROXY_TCP -p tcp -j TPROXY --on-port 5000 --on-ip 127.0.0.1 --tproxy-mark 0x01/0x01;\
-            iptables -t mangle -I PREROUTING -p tcp -j LPROXY_TCP;";
+            iptables -t mangle -I PREROUTING -p tcp -j LPROXY_TCP;\
+            iptables -t mangle -A LPROXY_TCP -p udp -j TPROXY --on-port 5000 --on-ip 127.0.0.1 --tproxy-mark 0x01/0x01;\
+            iptables -t mangle -I PREROUTING -p udp -j LPROXY_TCP;";
 
     // iptables -t mangle -N DIVERT;\
     // iptables -t mangle -A DIVERT -j MARK --set-mark 1;\
@@ -77,6 +87,7 @@ pub fn unset_iptables_rules_for_global() {
     // TODO: fix ipv6
     let args =
         "iptables -t mangle -D PREROUTING -p tcp -j LPROXY_TCP;\
+            iptables -t mangle -D PREROUTING -p udp -j LPROXY_TCP;\
             iptables -t mangle -F LPROXY_TCP;\
             iptables -t mangle -X LPROXY_TCP;";
 
