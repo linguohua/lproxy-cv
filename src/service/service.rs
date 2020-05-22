@@ -98,9 +98,9 @@ impl Service {
                     Service::process_instruction(clone.clone(), ins);
                     future::ready(())
                 });
-                info!("[Service] instruction rx future completed");
-
+                
                 fx_fut.await;
+                info!("[Service] instruction rx future completed");
             };
 
             self.save_tx(Some(tx));
