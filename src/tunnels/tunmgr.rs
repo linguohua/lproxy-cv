@@ -15,6 +15,7 @@ use stream_cancel::{Trigger, Tripwire};
 use futures_03::prelude::*;
 use bytes::BytesMut;
 use std::net::SocketAddr;
+use fnv::FnvHashSet as HashSet;
 
 type TunnelItem = Option<Rc<RefCell<Tunnel>>>;
 type LongLive = Rc<RefCell<TunMgr>>;
@@ -35,6 +36,7 @@ pub struct TunMgr {
     pub token: String,
     service_tx: TxType,
     udpx_tx: Option<UnboundedSender<SubServiceCtlCmd>>,
+    access_log: HashSet<(std::net::IpAddr, std::net::IpAddr)>,
 }
 
 impl TunMgr {
@@ -66,6 +68,7 @@ impl TunMgr {
             token,
             service_tx:service_tx,
             udpx_tx: None,
+            access_log: HashSet::default(),
         }))
     }
 
@@ -329,6 +332,9 @@ impl TunMgr {
 
         self.send_pings();
         self.process_reconnect(s.clone());
+
+        // access report
+        self.report_access_log();
     }
 
     pub fn stop(&mut self) {
@@ -381,14 +387,27 @@ impl TunMgr {
         tokio::task::spawn_local(t_fut);
     }
 
-    pub fn log_access(&self, peer_addr: std::net::IpAddr , target_ip : std::net::IpAddr) {
+    pub fn log_access(&mut self, peer_addr: std::net::IpAddr , target_ip : std::net::IpAddr) {
         // send to service
-        if let Err(e) = self.service_tx.send(Instruction::AccessLog(peer_addr, target_ip)){
-            error!("[TunMgr]log_access unbounded_send failed:{}", e);
+        self.access_log.insert((peer_addr, target_ip));
+    }
+
+    fn report_access_log(&mut self) {
+        if self.access_log.len() < 1 {
+            return;
+        }
+
+        let mut v = Vec::with_capacity(self.access_log.len());
+        for k in self.access_log.drain() {
+            v.push(k);
+        }
+
+        if let Err(e) = self.service_tx.send(Instruction::AccessLog(v)) {
+            error!("[TunMgr]report_access_log unbounded_send failed:{}", e);
         }
     }
 
-    pub fn udp_proxy_north(&self, msg: BytesMut, src_addr: SocketAddr, dst_addr: SocketAddr, hash_code:usize) {
+    pub fn udp_proxy_north(&mut self, msg: BytesMut, src_addr: SocketAddr, dst_addr: SocketAddr, hash_code:usize) {
         // select a tunnel, forward udp msg to dv via that tunnnel
         let tun_idx = hash_code % self.tunnels.len();
         
@@ -398,6 +417,8 @@ impl TunMgr {
                     Some(tun) => {
                         let tun = tun.borrow();
                         tun.udp_proxy_north(msg, src_addr, dst_addr);
+
+                        self.access_log.insert((src_addr.ip(), dst_addr.ip()));
                     }
                     None => {
                         error!("[TunMgr]udp_proxy_north, no tunnel found at:{}", tun_idx);

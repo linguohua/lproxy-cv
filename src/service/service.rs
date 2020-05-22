@@ -30,7 +30,7 @@ pub enum Instruction {
     StartSubServices,
     ServerCfgMonitor,
     Restart,
-    AccessLog(IpAddr, IpAddr),
+    AccessLog(Vec<(IpAddr, IpAddr)>),
     DNSAdd(DNSAddRecord),
 }
 
@@ -42,7 +42,7 @@ impl fmt::Display for Instruction {
             Instruction::StartSubServices => s = "StartSubServices",
             Instruction::ServerCfgMonitor => s = "ServerCfgMonitor",
             Instruction::Restart => s = "Restart",
-            Instruction::AccessLog(_,_) => s = "AccessLog",
+            Instruction::AccessLog(_) => s = "AccessLog",
             Instruction::DNSAdd(_) => s = "DNSAdd",
         }
         write!(f, "({})", s)
@@ -150,8 +150,8 @@ impl Service {
             Instruction::Restart => {
                 Service::do_restart(s.clone());
             }
-            Instruction::AccessLog(src, dst) => {
-                Service::do_access_log(s.clone(), src, dst);
+            Instruction::AccessLog(v) => {
+                Service::do_access_log(s.clone(), v);
             }
             Instruction::DNSAdd(da) => {
                 Service::do_dns_add(s.clone(), da);
@@ -651,8 +651,8 @@ impl Service {
         s.start(s1.clone());
     }
 
-    fn do_access_log(s1: LongLive, src: IpAddr, dst: IpAddr) {
-        s1.borrow_mut().acc_log.log(src, dst);
+    fn do_access_log(s1: LongLive, v: Vec<(IpAddr, IpAddr)>) {
+        s1.borrow_mut().acc_log.log(v);
     }
 
     fn do_dns_add(s1: LongLive, da :DNSAddRecord) {

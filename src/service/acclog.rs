@@ -50,27 +50,29 @@ impl AccLog {
         }
     }
 
-    pub fn log(&mut self, src_ip: IpAddr, dst_ip : IpAddr) {
-        let domain;
-        match self.domains.get(&dst_ip) {
-            Some(domain1) => {
-                // use exist domain name
-                domain = domain1.to_string();
+    pub fn log(&mut self, v: Vec<(std::net::IpAddr, std::net::IpAddr)>) {
+        for (src_ip, dst_ip) in v.iter() {
+            let domain;
+            match self.domains.get(&dst_ip) {
+                Some(domain1) => {
+                    // use exist domain name
+                    domain = domain1.to_string();
+                }
+                None => {
+                    // convert ip to domain name
+                    domain = dst_ip.to_string();
+                }
             }
-            None => {
-                // convert ip to domain name
-                domain = dst_ip.to_string();
-            }
-        }
-
-        match self.acc_domains.get_mut(&domain) {
-            Some(acc_domain1) => {
-                acc_domain1.log(src_ip);
-            }
-            None => {
-                let mut acc_domain1 = AccDomainRecord::new();
-                acc_domain1.log(src_ip);
-                self.acc_domains.insert(domain, acc_domain1);
+    
+            match self.acc_domains.get_mut(&domain) {
+                Some(acc_domain1) => {
+                    acc_domain1.log(*src_ip);
+                }
+                None => {
+                    let mut acc_domain1 = AccDomainRecord::new();
+                    acc_domain1.log(*src_ip);
+                    self.acc_domains.insert(domain, acc_domain1);
+                }
             }
         }
     }

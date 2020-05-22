@@ -347,7 +347,7 @@ fn start_one_tunmgr(
                     }
                     SubServiceCtlCmd::UdpProxy((msg, src_addr, dst_addr, hash_code)) => {
                         let f = tunmgr.clone();
-                        f.borrow().udp_proxy_north(msg, src_addr, dst_addr, hash_code);
+                        f.borrow_mut().udp_proxy_north(msg, src_addr, dst_addr, hash_code);
                     }
                     SubServiceCtlCmd::SetUdpTx(tx) => {
                         let f = tunmgr.clone();

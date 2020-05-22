@@ -43,7 +43,7 @@ pub fn serve_sock(socket: TcpStream, mgr: Rc<RefCell<TunMgr>>) {
     {
         let peer_addr = socket.peer_addr().unwrap();
         // log access
-        mgr.borrow().log_access(peer_addr.ip(), ip.to_std())
+        mgr.borrow_mut().log_access(peer_addr.ip(), ip.to_std())
     }
 
     // set 2 seconds write-timeout TODO:
