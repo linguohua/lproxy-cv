@@ -51,7 +51,7 @@ impl Server {
         let (trigger, tripwire) = Tripwire::new();
         self.save_listener_trigger(trigger);
 
-        let server = async move { 
+        let server = async move {
             listener
             .incoming()
             //.map_err(|e| error!("[Server] accept failed = {:?}", e))
@@ -72,7 +72,6 @@ impl Server {
 
         // Start the Tokio runtime
         tokio::task::spawn_local(server);
-
         Ok(())
     }
 

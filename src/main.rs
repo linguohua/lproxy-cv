@@ -136,7 +136,8 @@ fn main() {
         s.borrow_mut().stop();
     };
 
-    local.block_on(&mut basic_rt, l);
+    local.spawn_local(l);
+    basic_rt.block_on(local);
 
     if pidfile_holder.is_some() {
         match pidfile_holder.unwrap().set_len(0) {

@@ -5,7 +5,6 @@ use crate::tunnels;
 use crate::xport;
 use crate::udpx;
 
-use futures_03::future::lazy;
 use futures_03::prelude::*;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
 use log::{error, info};
@@ -92,7 +91,7 @@ fn start_forwarder(
         // let handle = rt.handle();
         let local = tokio::task::LocalSet::new();
 
-        let fut = lazy(move |_| {
+        let fut = async move {
             let forwarder = dns::Forwarder::new(service_tx, &cfg, domains);
             // thread code
             if let Err(e) = forwarder.borrow_mut().init(forwarder.clone()) {
@@ -124,9 +123,10 @@ fn start_forwarder(
             });
 
             tokio::task::spawn_local(fut);
-        });
+        };
 
-        local.block_on(&mut basic_rt, fut);
+        local.spawn_local(fut);
+        basic_rt.block_on(local);
     });
 
     SubServiceCtl {
@@ -146,7 +146,7 @@ fn start_xtunnel(cfg: Arc<TunCfg>, r_tx: oneshot::Sender<bool>) -> SubServiceCtl
         // let handle = rt.handle();
         let local = tokio::task::LocalSet::new();
 
-        let fut = lazy(move |_| {
+        let fut = async move {
             let xtun = xport::XTunnel::new(&cfg);
             // thread code
             if let Err(e) = xtun.borrow_mut().start(xtun.clone()) {
@@ -174,9 +174,10 @@ fn start_xtunnel(cfg: Arc<TunCfg>, r_tx: oneshot::Sender<bool>) -> SubServiceCtl
             });
 
             tokio::task::spawn_local(fut);
-        });
+        };
 
-        local.block_on(&mut basic_rt, fut);
+        local.spawn_local(fut);
+        basic_rt.block_on(local);
     });
 
     SubServiceCtl {
@@ -202,7 +203,7 @@ fn start_reqmgr(
         // let handle = rt.handle();
         let local = tokio::task::LocalSet::new();
 
-        let fut = lazy(move |_| {
+        let fut = async move {
             let reqmgr = requests::ReqMgr::new(&cfg, tmstubs);
             // thread code
             if let Err(e) = reqmgr.borrow_mut().init(reqmgr.clone()) {
@@ -230,9 +231,10 @@ fn start_reqmgr(
             });
 
             tokio::task::spawn_local(fut);
-        });
+        };
 
-        local.block_on(&mut basic_rt, fut);
+        local.spawn_local(fut);
+        basic_rt.block_on(local);
     });
 
     SubServiceCtl {
@@ -259,7 +261,7 @@ fn start_udpx(
         // let handle = rt.handle();
         let local = tokio::task::LocalSet::new();
 
-        let fut = lazy(move |_| {
+        let fut = async move {
             let udpx = udpx::UdpXMgr::new(&cfg, tmstubs, tx);
             // thread code
             if let Err(e) = udpx.borrow_mut().init(udpx.clone()) {
@@ -291,9 +293,10 @@ fn start_udpx(
             });
 
             tokio::task::spawn_local(fut);
-        });
+        };
 
-        local.block_on(&mut basic_rt, fut);
+        local.spawn_local(fut);
+        basic_rt.block_on(local);
     });
 
     SubServiceCtl {
@@ -318,7 +321,7 @@ fn start_one_tunmgr(
         // let handle = rt.handle();
         let local = tokio::task::LocalSet::new();
 
-        let fut = lazy(move |_| {
+        let fut = async move {
             let tunmgr = tunnels::TunMgr::new(service_tx.clone(), tunnels_count, &cfg);
             // thread code
             if let Err(e) = tunmgr.borrow_mut().init(tunmgr.clone()) {
@@ -366,9 +369,10 @@ fn start_one_tunmgr(
             };
 
             tokio::task::spawn_local(fut);
-        });
+        };
 
-        local.block_on(&mut basic_rt, fut);
+        local.spawn_local(fut);
+        basic_rt.block_on(local);
     });
 
     SubServiceCtl {
