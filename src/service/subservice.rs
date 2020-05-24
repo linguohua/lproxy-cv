@@ -81,7 +81,7 @@ fn start_forwarder(
     domains: Vec<String>,
     r_tx: oneshot::Sender<bool>,
 ) -> SubServiceCtl {
-    let (tx, rx) = unbounded_channel();
+    let (tx, mut rx) = unbounded_channel();
     let handler = std::thread::spawn(move || {
         let mut basic_rt = tokio::runtime::Builder::new()
         .basic_scheduler()
@@ -104,11 +104,12 @@ fn start_forwarder(
             r_tx.send(true).unwrap();
 
             // wait control signals
-            let fut = rx.for_each(move |cmd| {
+            while let Some(cmd) = rx.next().await {
                 match cmd {
                     SubServiceCtlCmd::Stop => {
                         let f = forwarder.clone();
                         f.borrow_mut().stop();
+                        break;
                     }
                     SubServiceCtlCmd::DomainsUpdate(domains) => {
                         let f = forwarder.clone();
@@ -118,11 +119,7 @@ fn start_forwarder(
                         error!("[SubService]forwarder unknown ctl cmd:{}", cmd);
                     }
                 }
-
-                future::ready(())
-            });
-
-            tokio::task::spawn_local(fut);
+            };
         };
 
         local.spawn_local(fut);
@@ -137,7 +134,7 @@ fn start_forwarder(
 }
 
 fn start_xtunnel(cfg: Arc<TunCfg>, r_tx: oneshot::Sender<bool>) -> SubServiceCtl {
-    let (tx, rx) = unbounded_channel();
+    let (tx, mut rx) = unbounded_channel();
     let handler = std::thread::spawn(move || {
         let mut basic_rt = tokio::runtime::Builder::new()
         .basic_scheduler()
@@ -159,21 +156,19 @@ fn start_xtunnel(cfg: Arc<TunCfg>, r_tx: oneshot::Sender<bool>) -> SubServiceCtl
             r_tx.send(true).unwrap();
 
             // wait control signals
-            let fut = rx.for_each(move |cmd| {
+            while let Some(cmd) =  rx.next().await {
                 match cmd {
                     SubServiceCtlCmd::Stop => {
                         let f = xtun.clone();
                         f.borrow_mut().stop();
+                        break;
                     }
                     _ => {
                         error!("[SubService]xtun unknown ctl cmd:{}", cmd);
+                        break;
                     }
                 }
-
-                future::ready(())
-            });
-
-            tokio::task::spawn_local(fut);
+            };
         };
 
         local.spawn_local(fut);
@@ -194,7 +189,7 @@ fn start_reqmgr(
 ) -> SubServiceCtl {
     info!("[SubService]start_reqmgr, tm count:{}", tmstubs.len());
 
-    let (tx, rx) = unbounded_channel();
+    let (tx, mut rx) = unbounded_channel();
     let handler = std::thread::spawn(move || {
         let mut basic_rt = tokio::runtime::Builder::new()
         .basic_scheduler()
@@ -216,21 +211,18 @@ fn start_reqmgr(
             r_tx.send(true).unwrap();
 
             // wait control signals
-            let fut = rx.for_each(move |cmd| {
+            while let Some(cmd) = rx.next().await {
                 match cmd {
                     SubServiceCtlCmd::Stop => {
                         let f = reqmgr.clone();
                         f.borrow_mut().stop();
+                        break;
                     }
                     _ => {
                         error!("[SubService]reqmgr unknown ctl cmd:{}", cmd);
                     }
                 }
-
-                future::ready(())
-            });
-
-            tokio::task::spawn_local(fut);
+            };
         };
 
         local.spawn_local(fut);
@@ -251,7 +243,7 @@ fn start_udpx(
 ) -> SubServiceCtl {
     info!("[SubService]start_udpx, tm count:{}", tmstubs.len());
 
-    let (tx, rx) = unbounded_channel();
+    let (tx, mut rx) = unbounded_channel();
     let tx2 = tx.clone();
     let handler = std::thread::spawn(move || {
         let mut basic_rt = tokio::runtime::Builder::new()
@@ -274,11 +266,12 @@ fn start_udpx(
             r_tx.send(true).unwrap();
 
             // wait control signals
-            let fut = rx.for_each(move |cmd| {
+            while let Some(cmd) = rx.next().await {
                 match cmd {
                     SubServiceCtlCmd::Stop => {
                         let f = udpx.clone();
                         f.borrow_mut().stop();
+                        break;
                     }
                     SubServiceCtlCmd::UdpRecv((msg, src_addr, dst_addr)) => {
                         let f = udpx.clone();
@@ -288,11 +281,7 @@ fn start_udpx(
                         error!("[SubService]udpx unknown ctl cmd:{}", cmd);
                     }
                 }
-
-                future::ready(())
-            });
-
-            tokio::task::spawn_local(fut);
+            };
         };
 
         local.spawn_local(fut);
@@ -312,7 +301,7 @@ fn start_one_tunmgr(
     r_tx: oneshot::Sender<bool>,
     tunnels_count: usize,
 ) -> SubServiceCtl {
-    let (tx, rx) = unbounded_channel();
+    let (tx, mut rx) = unbounded_channel();
     let handler = std::thread::spawn(move || {
         let mut basic_rt = tokio::runtime::Builder::new()
         .basic_scheduler()
@@ -334,11 +323,12 @@ fn start_one_tunmgr(
             r_tx.send(true).unwrap();
 
             // wait control signals
-            let fut = rx.for_each(move |cmd| {
+            while let Some(cmd) = rx.next().await {
                 match cmd {
                     SubServiceCtlCmd::Stop => {
                         let f = tunmgr.clone();
                         f.borrow_mut().stop();
+                        break;
                     }
                     SubServiceCtlCmd::TcpTunnel(t) => {
                         tunnels::serve_sock(t, tunmgr.clone());
@@ -359,16 +349,9 @@ fn start_one_tunmgr(
                         error!("[SubService]tunmgr unknown ctl cmd:{}", cmd);
                     }
                 }
-
-                future::ready(())
-            });
-
-            let fut = async move {
-                fut.await;
-                info!("tunmgr sub-service rx fut exit");
             };
 
-            tokio::task::spawn_local(fut);
+            info!("tunmgr sub-service rx fut exit");
         };
 
         local.spawn_local(fut);
