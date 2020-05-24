@@ -39,13 +39,15 @@ pub fn xtunel_connect(xtun: &mut XTunnel, ll: LongLive) {
         // send us messages. Then register our address with the stream to send
         // data to us.
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
-        let mut rf = ll.borrow_mut();
-        if let Err(_) = rf.on_tunnel_created(rawfd, tx) {
-            // TODO: should return directly
-            if let Err(e) = shutdown(rawfd, Shutdown::Both) {
-                error!("[xtunserv]shutdown rawfd failed:{}", e);
+        {
+            let mut rf = ll.borrow_mut();
+            if let Err(_) = rf.on_tunnel_created(rawfd, tx) {
+                // TODO: should return directly
+                if let Err(e) = shutdown(rawfd, Shutdown::Both) {
+                    error!("[xtunserv]shutdown rawfd failed:{}", e);
+                }
+                return;
             }
-            return;
         }
 
         // `sink` is the stream of messages going out.
@@ -78,8 +80,11 @@ pub fn xtunel_connect(xtun: &mut XTunnel, ll: LongLive) {
         // Wait for either of futures to complete.
         future::select(receive_fut, send_fut).await;
         info!("[xtunserv] both websocket futures completed");
-        let mut rf = clone2.borrow_mut();
-        rf.on_tunnel_closed();
+        {
+            let mut rf = clone2.borrow_mut();
+            rf.on_tunnel_closed();
+        }
+
         ()
     };
 

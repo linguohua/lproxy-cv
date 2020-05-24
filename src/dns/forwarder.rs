@@ -122,11 +122,16 @@ impl Forwarder {
         info!("[Forwarder]init");
         self.start_keepalive_timer(s.clone());
 
-        let mut serv = self.server.borrow_mut();
-        serv.start(self, s.clone())?;
+        {
+            let mut serv = self.server.borrow_mut();
+            serv.start(self, s.clone())?;
+        }
 
-        let mut lresolver = self.lresolver.borrow_mut();
-        lresolver.start(self, s)
+        {
+            let mut lresolver = self.lresolver.borrow_mut();
+            lresolver.start(self, s)
+        }
+
     }
 
     pub fn on_dns_udp_created(&self, udps: &UdpServer, s: LongLife) {

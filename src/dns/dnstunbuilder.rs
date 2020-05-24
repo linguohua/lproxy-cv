@@ -46,14 +46,16 @@ pub fn connect(fw: &Forwarder, mgr2: Rc<RefCell<Forwarder>>, index: usize, udp_t
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
 
         let t = Rc::new(RefCell::new(DnsTunnel::new(tx, rawfd, udp_tx, index)));
-        let mut rf = mgr1.borrow_mut();
-        if let Err(_) = rf.on_tunnel_created(t.clone()) {
-            // TODO: should return directly
-            if let Err(e) = shutdown(rawfd, Shutdown::Both) {
-                error!("[dnstunbuilder]shutdown rawfd failed:{}", e);
-                
+        {
+            let mut rf = mgr1.borrow_mut();
+            if let Err(_) = rf.on_tunnel_created(t.clone()) {
+                // TODO: should return directly
+                if let Err(e) = shutdown(rawfd, Shutdown::Both) {
+                    error!("[dnstunbuilder]shutdown rawfd failed:{}", e);
+                    
+                }
+                return
             }
-            return
         }
 
         // `sink` is the stream of messages going out.
@@ -83,9 +85,11 @@ pub fn connect(fw: &Forwarder, mgr2: Rc<RefCell<Forwarder>>, index: usize, udp_t
         // Wait for either of futures to complete.
         future::select(receive_fut, send_fut).await;
         info!("[dnstunbuilder] both websocket futures completed");
-        let mut rf = mgr3.borrow_mut();
-        rf.on_tunnel_closed(index);
-        
+        {
+            let mut rf = mgr3.borrow_mut();
+            rf.on_tunnel_closed(index);
+        }
+ 
         // error!(
         //     "[dnstunbuilder]Error during the websocket handshake occurred: {}",
         //     e

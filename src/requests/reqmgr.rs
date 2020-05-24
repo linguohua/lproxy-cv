@@ -41,11 +41,16 @@ impl ReqMgr {
     pub fn stop(&mut self) {
         self.tmstubs.clear();
 
-        let mut s = self.server.borrow_mut();
-        s.stop();
+        {
+            let mut s = self.server.borrow_mut();
+            s.stop();
+        }
 
-        let mut s2 = self.server6.borrow_mut();
-        s2.stop();
+        {
+            let mut s2 = self.server6.borrow_mut();
+            s2.stop();
+        }
+
     }
 
     pub fn on_accept_tcpstream(&mut self, tcpstream: tokio::net::TcpStream) {

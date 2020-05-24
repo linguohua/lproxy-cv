@@ -53,12 +53,21 @@ impl UdpXMgr {
     pub fn stop(&mut self) {
         self.tmstubs.clear();
 
-        let mut s = self.server.borrow_mut();
-        s.stop();
-        let mut s = self.server6.borrow_mut();
-        s.stop();
-        let mut s = self.cache.borrow_mut();
-        s.cleanup();
+        {
+            let mut s = self.server.borrow_mut();
+            s.stop();
+        }
+
+        {
+            let mut s = self.server6.borrow_mut();
+            s.stop();
+        }
+   
+        {
+            let mut s = self.cache.borrow_mut();
+            s.cleanup();
+        }
+
     }
 
     pub fn on_udp_server_closed(&mut self) {

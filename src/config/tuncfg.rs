@@ -24,7 +24,7 @@ pub struct TunCfg {
 }
 
 pub fn server_url() -> String {
-    "https://127.0.0.1:8000/auth".to_string()
+    "http://103.39.232.231:8002/auth".to_string()
 }
 
 pub struct AuthReq {

@@ -61,13 +61,15 @@ pub fn connect(tm: &TunMgr, mgr2: Rc<RefCell<TunMgr>>, index: usize) {
             request_quota,
         )));
 
-        let mut rf = mgr1.borrow_mut();
-        if let Err(_) = rf.on_tunnel_created(t.clone()) {
-            // TODO: should return directly
-            if let Err(e) = shutdown(rawfd, Shutdown::Both) {
-                error!("[tunbuilder]shutdown rawfd failed:{}", e);
+        {
+            let mut rf = mgr1.borrow_mut();
+            if let Err(_) = rf.on_tunnel_created(t.clone()) {
+                // TODO: should return directly
+                if let Err(e) = shutdown(rawfd, Shutdown::Both) {
+                    error!("[tunbuilder]shutdown rawfd failed:{}", e);
+                }
+                return;
             }
-            return;
         }
 
         // `sink` is the stream of messages going out.
@@ -95,8 +97,11 @@ pub fn connect(tm: &TunMgr, mgr2: Rc<RefCell<TunMgr>>, index: usize) {
         // Wait for either of futures to complete.
         future::select(receive_fut, send_fut).await;
         info!("[tunbuilder] both websocket futures completed");
-        let mut rf = mgr1.borrow_mut();
-        rf.on_tunnel_closed(index);
+        {
+            let mut rf = mgr1.borrow_mut();
+            rf.on_tunnel_closed(index);
+        }
+
         ()
     };
  
