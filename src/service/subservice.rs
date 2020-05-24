@@ -72,7 +72,6 @@ pub struct SubServiceCtl {
     pub sstype: SubServiceType,
 }
 
-#[derive(Clone)]
 pub struct TunMgrStub {
     pub ctl_tx: UnboundedSender<SubServiceCtlCmd>,
 }
@@ -469,7 +468,14 @@ pub async fn start_subservice(
                 tmstubs.push(TunMgrStub { ctl_tx: tx });
             }
         }
-        let tmstubs2 = tmstubs.clone();
+        let mut tmstubs2 = Vec::new();
+        {
+            let ss = subservices.borrow();
+            for s in ss.iter() {
+                let tx = s.ctl_tx.as_ref().unwrap().clone();
+                tmstubs2.push(TunMgrStub { ctl_tx: tx });
+            }
+        }
 
         match to_future(rx, start_reqmgr(cfg.clone(), tx, tmstubs)).await {
             Ok(ctl) => subservices.borrow_mut().push(ctl),
