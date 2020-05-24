@@ -443,9 +443,9 @@ async fn start_tunmgr(service_tx: super::TxType,
     fut.await;
 
     if *failed3.borrow() {
-        Ok(subservices3)
-    } else {
         Err(subservices3)
+    } else {
+        Ok(subservices3)
     }
 }
 

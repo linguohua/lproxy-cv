@@ -16,7 +16,7 @@ pub struct UdpXMgr {
     tmstubs: Vec<TunMgrStub>,
     ctl_tx: UnboundedSender<SubServiceCtlCmd>,
     server: Rc<RefCell<super::UdpServer>>,
-    server6: Rc<RefCell<super::UdpServer>>,
+    //server6: Rc<RefCell<super::UdpServer>>,
     cache: LongLiveC,
 }
 
@@ -27,7 +27,7 @@ impl UdpXMgr {
             tmstubs,
             ctl_tx,
             server: UdpServer::new(format!("{}:{}", LOCAL_SERVER, LOCAL_TPROXY_SERVER_PORT)),
-            server6:UdpServer::new(format!("::1:{}", LOCAL_TPROXY_SERVER_PORT)),
+            //server6:UdpServer::new(format!("::1:{}", LOCAL_TPROXY_SERVER_PORT)),
             cache:  Cache::new(),
         }))
     }
@@ -45,7 +45,7 @@ impl UdpXMgr {
         }
 
         self.server.borrow_mut().start(s.clone())?;
-        self.server6.borrow_mut().start(s.clone())?;
+        //self.server6.borrow_mut().start(s.clone())?;
 
         Ok(())
     }
@@ -55,8 +55,8 @@ impl UdpXMgr {
 
         let mut s = self.server.borrow_mut();
         s.stop();
-        let mut s = self.server6.borrow_mut();
-        s.stop();
+        //let mut s = self.server6.borrow_mut();
+        //s.stop();
         let mut s = self.cache.borrow_mut();
         s.cleanup();
     }
