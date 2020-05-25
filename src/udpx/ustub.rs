@@ -78,7 +78,7 @@ impl UStub {
     fn start_udp_socket(&mut self, src_addr: &SocketAddr, ll: super::LongLiveX) -> std::result::Result<(), Error> {
         // let sockudp = std::net::UdpSocket::new();
         let rawfd = super::sas_socket(src_addr)?;
-        let socket_udp = unsafe{std::net::UdpSocket::from_raw_fd(0)};
+        let socket_udp = unsafe{std::net::UdpSocket::from_raw_fd(rawfd)};
         let a = UdpSocket::from_std(socket_udp)?;
 
         let udp_framed = tokio_util::udp::UdpFramed::new(a, tokio_util::codec::BytesCodec::new());
