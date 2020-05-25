@@ -41,7 +41,7 @@ impl UStub {
             return;
         }
 
-        info!("[UStub] forward udp from:{} to:{}, len:{}", self.src_addr, dst_addr, msg.len());
+        info!("[UStub] on_udp_proxy_south udp from:{} to:{}, len:{}", self.src_addr, dst_addr, msg.len());
         match self.tx.as_ref().unwrap().send((msg, dst_addr)){
             Err(e) => {
                 error!("[UStub]on_udp_proxy_south, send tx msg failed:{}", e);
@@ -100,6 +100,7 @@ impl UStub {
                 Ok((message, addr)) => {
                     let rf = ll.borrow();
                     // post to manager
+                    info!("[UStub] start_udp_socket udp from:{} to:{}, len:{}", addr, target_addr, message.len());
                     rf.on_udp_msg_forward(message, addr, target_addr);
                 },
                 Err(e) => error!("[UStub] for_each failed:{}", e)
