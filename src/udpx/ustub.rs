@@ -52,6 +52,7 @@ impl UStub {
 
     pub fn cleanup(&mut self) {
         // TODO: close socket and send fut
+        info!("[UStub] cleanup, src_addr:{}", self.src_addr);
         self.close_rawfd();
 
         self.tx = None;
