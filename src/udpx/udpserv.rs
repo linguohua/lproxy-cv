@@ -51,6 +51,7 @@ impl UdpServer {
                         //let mut rf = ll3.borrow_mut();
                         // post to manager
                         //rf.on_receive_udp_msg(message, addr);
+                        info!("[Udpx-Server] recv udp from:{}, to:{}, len:{}", saddr, daddr, message.len());
                         let rf = llx.borrow();
                         rf.on_udp_msg_forward(message, saddr, daddr);
                     },

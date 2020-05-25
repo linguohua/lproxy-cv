@@ -18,6 +18,7 @@ pub struct UStub {
     rawfd: RawFd,
     tx: Option<TxType>,
     tigger: Option<Trigger>,
+    src_addr: SocketAddr,
 }
 
 impl UStub {
@@ -26,6 +27,7 @@ impl UStub {
             rawfd: 0,
             tx: None, 
             tigger: None,
+            src_addr: *src_addr,
         };
 
         stub.start_udp_socket(src_addr, ll)?;
@@ -39,6 +41,7 @@ impl UStub {
             return;
         }
 
+        info!("[UStub] forward udp from:{} to:{}, len:{}", self.src_addr, dst_addr, msg.len());
         match self.tx.as_ref().unwrap().send((msg, dst_addr)){
             Err(e) => {
                 error!("[UStub]on_udp_proxy_south, send tx msg failed:{}", e);

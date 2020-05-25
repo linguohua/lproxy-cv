@@ -430,6 +430,7 @@ impl TunMgr {
     }
 
     pub fn set_udpx_tx(&mut self, tx: UnboundedSender<SubServiceCtlCmd>) {
+        self.udpx_tx = Some(tx.clone());
         let tunnels = &self.tunnels;
         for t in tunnels.iter() {
             match t {
