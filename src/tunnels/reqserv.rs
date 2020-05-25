@@ -102,8 +102,8 @@ pub fn serve_sock(socket: TcpStream, mgr: Rc<RefCell<TunMgr>>) {
             "[ReqServ]send_fut end, req_idx:{}, req_tag:{}",
             req_idx, req_tag
         );
-        // shutdown read direction
-        if let Err(e) = shutdown(rawfd, Shutdown::Read) {
+        // shutdown write direction
+        if let Err(e) = shutdown(rawfd, Shutdown::Write) {
             error!("[ReqServ]shutdown rawfd error:{}", e);
         }
 
