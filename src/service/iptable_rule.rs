@@ -74,10 +74,12 @@ pub fn set_iptables_rules_for_global() {
             iptables -t mangle -A LPROXY_TCP -d 192.168.0.0/16 -j RETURN;\
             iptables -t mangle -A LPROXY_TCP -d 224.0.0.0/4 -j RETURN;\
             iptables -t mangle -A LPROXY_TCP -d 240.0.0.0/4 -j RETURN;\
-            iptables -t mangle -A LPROXY_TCP -p tcp -j TPROXY --on-port {ppport} --on-ip 127.0.0.1 --tproxy-mark 0x01/0x01;\
-            iptables -t mangle -I PREROUTING -p tcp -j LPROXY_TCP;\
-            iptables -t mangle -A LPROXY_TCP -p udp -j TPROXY --on-port {ppport} --on-ip 127.0.0.1 --tproxy-mark 0x01/0x01;\
-            iptables -t mangle -I PREROUTING -p udp -j LPROXY_TCP;", ppport = LOCAL_TPROXY_SERVER_PORT);
+            iptables -t mangle -A LPROXY_TCP -j TPROXY --on-port {ppport} --on-ip 127.0.0.1 --tproxy-mark 0x01/0x01;\
+            iptables -t mangle -I PREROUTING -j LPROXY_TCP;\
+            iptables -t mangle -N DIVERT;\
+            iptables -t mangle -A DIVERT -j MARK --set-mark 1;\
+            iptables -t mangle -A DIVERT -j ACCEPT;\
+            iptables -t mangle -I PREROUTING -m socket -j DIVERT;", ppport = LOCAL_TPROXY_SERVER_PORT);
 
     // iptables -t mangle -N DIVERT;\
     // iptables -t mangle -A DIVERT -j MARK --set-mark 1;\
@@ -93,8 +95,10 @@ pub fn set_iptables_rules_for_global() {
 pub fn unset_iptables_rules_for_global() {
     // TODO: fix ipv6
     let args =
-        "iptables -t mangle -D PREROUTING -p tcp -j LPROXY_TCP;\
-            iptables -t mangle -D PREROUTING -p udp -j LPROXY_TCP;\
+        "iptables -t mangle -D PREROUTING -j LPROXY_TCP;\
+            iptables -t mangle -D PREROUTING -m socket -j DIVERT;\
+            iptables -t mangle -F DIVERT;\
+            iptables -t mangle -X DIVERT;\
             iptables -t mangle -F LPROXY_TCP;\
             iptables -t mangle -X LPROXY_TCP;";
 
