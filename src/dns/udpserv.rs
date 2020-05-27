@@ -5,9 +5,9 @@ use log::{error, info};
 use std::net::SocketAddr;
 use std::result::Result;
 
-use tokio::net::{UdpSocket};
 use futures_03::prelude::*;
 use stream_cancel::{Trigger, Tripwire};
+use tokio::net::UdpSocket;
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -48,7 +48,7 @@ impl UdpServer {
         fw.on_dns_udp_created(self, forward);
 
         // send future
-        let send_fut = rx.map(move |x|{Ok(x)}).forward(a_sink);
+        let send_fut = rx.map(move |x| Ok(x)).forward(a_sink);
         let receive_fut = async move {
             let mut a_stream = a_stream.take_until(tripwire);
 
@@ -62,7 +62,7 @@ impl UdpServer {
                             error!("[UdpServer] on_dns_udp_msg failed");
                             break;
                         }
-                    },
+                    }
                     Err(e) => {
                         error!("[UdpServer] a_stream.next failed:{}", e);
                         break;
@@ -70,7 +70,6 @@ impl UdpServer {
                 };
             }
         };
-
 
         // Wait for one future to complete.
         let select_fut = async move {

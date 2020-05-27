@@ -5,20 +5,20 @@ mod lws;
 mod requests;
 mod service;
 mod tunnels;
-mod xport;
 mod udpx;
+mod xport;
 
 use fs2::FileExt;
 //use futures::stream::Stream;
 //se futures::Future;
 use log::{error, info};
 use service::Service;
-use tokio::signal::unix::{signal, SignalKind};
 use std::env;
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::process;
 use tokio::runtime;
+use tokio::signal::unix::{signal, SignalKind};
 
 pub const PIDFILE: &'static str = "/var/run/lproxy-cv.pid";
 pub const LOCKFILE: &'static str = "/var/run/lproxy-cv.lock";
@@ -119,9 +119,10 @@ fn main() {
     );
 
     let mut basic_rt = runtime::Builder::new()
-    .basic_scheduler()
-    .enable_all()
-    .build().unwrap();
+        .basic_scheduler()
+        .enable_all()
+        .build()
+        .unwrap();
     // let handle = rt.handle();
     let local = tokio::task::LocalSet::new();
 
@@ -132,7 +133,7 @@ fn main() {
         let mut ss = signal(SignalKind::user_defined1()).unwrap();
         let sig = ss.recv().await;
         println!("got signal {:?}", sig);
-            // Service::stop
+        // Service::stop
         s.borrow_mut().stop();
     };
 

@@ -1,5 +1,6 @@
 use super::ReqMgr;
 use failure::Error;
+use futures_03::prelude::*;
 use log::{error, info};
 use nix::sys::socket::setsockopt;
 use nix::sys::socket::sockopt::IpTransparent;
@@ -10,7 +11,6 @@ use std::result::Result;
 use stream_cancel::{Trigger, Tripwire};
 use tokio;
 use tokio::net::TcpListener;
-use futures_03::prelude::*;
 
 type LongLive = Rc<RefCell<Server>>;
 
@@ -52,24 +52,25 @@ impl Server {
         self.save_listener_trigger(trigger);
 
         let server = async move {
-            let mut listener = 
-            listener
-            .incoming()
-            //.map_err(|e| error!("[Server] accept failed = {:?}", e))
-            .take_until(tripwire);
+            let mut listener = listener
+                .incoming()
+                //.map_err(|e| error!("[Server] accept failed = {:?}", e))
+                .take_until(tripwire);
 
             while let Some(sock) = listener.next().await {
                 // service new socket
                 // let mgr = mgr.clone();
                 match sock {
-                    Ok(s) => {mgr.borrow_mut().on_accept_tcpstream(s);}
+                    Ok(s) => {
+                        mgr.borrow_mut().on_accept_tcpstream(s);
+                    }
                     Err(e) => {
                         error!("[Server] accept failed = {:?}", e);
                         break;
                     }
                 }
             }
-            
+
             info!("[Server]listening future completed");
         };
 

@@ -1,6 +1,6 @@
 use super::ip_rules::do_bash_cmd;
 // use super::ipset;
-use crate::config::{LOCAL_TPROXY_SERVER_PORT};
+use crate::config::LOCAL_TPROXY_SERVER_PORT;
 
 pub fn set_iptables_rules() {
     unset_iptables_rules();
@@ -36,8 +36,7 @@ pub fn set_iptables_rules() {
 }
 
 pub fn unset_iptables_rules() {
-    let args =
-        "iptables -t mangle -D PREROUTING -m set --match-set LPROXY dst -j LPROXY_TCP;\
+    let args = "iptables -t mangle -D PREROUTING -m set --match-set LPROXY dst -j LPROXY_TCP;\
          iptables -t mangle -D PREROUTING -m set --match-set LPROXYN dst -j LPROXY_TCP;\
          iptables -t mangle -D PREROUTING -m socket -j DIVERT;\
          ip6tables -t mangle -D PREROUTING -m set --match-set LPROXY6 dst -j LPROXY_TCP;\
@@ -93,8 +92,7 @@ pub fn set_iptables_rules_for_global() {
 
 pub fn unset_iptables_rules_for_global() {
     // TODO: fix ipv6
-    let args =
-        "iptables -t mangle -D PREROUTING -j LPROXY_TCP;\
+    let args = "iptables -t mangle -D PREROUTING -j LPROXY_TCP;\
             iptables -t mangle -D PREROUTING -m socket -j DIVERT;\
             iptables -t mangle -F DIVERT;\
             iptables -t mangle -X DIVERT;\

@@ -1,21 +1,21 @@
-use tokio::sync::mpsc::UnboundedSender;
 use super::tunbuilder;
 use super::Tunnel;
 use super::{Request, TunStub};
 use crate::config::{TunCfg, KEEP_ALIVE_INTERVAL};
-use crate::service::{Instruction,TxType, SubServiceCtlCmd};
+use crate::service::{Instruction, SubServiceCtlCmd, TxType};
+use bytes::BytesMut;
 use failure::Error;
+use fnv::FnvHashSet as HashSet;
+use futures_03::prelude::*;
 use log::{debug, error, info};
 use std::cell::RefCell;
 use std::net::IpAddr;
+use std::net::SocketAddr;
 use std::rc::Rc;
 use std::result::Result;
-use std::time::{Duration};
+use std::time::Duration;
 use stream_cancel::{Trigger, Tripwire};
-use futures_03::prelude::*;
-use bytes::BytesMut;
-use std::net::SocketAddr;
-use fnv::FnvHashSet as HashSet;
+use tokio::sync::mpsc::UnboundedSender;
 
 type TunnelItem = Option<Rc<RefCell<Tunnel>>>;
 type LongLive = Rc<RefCell<TunMgr>>;
@@ -40,7 +40,7 @@ pub struct TunMgr {
 }
 
 impl TunMgr {
-    pub fn new(service_tx:TxType, tunnel_count: usize, cfg: &TunCfg) -> LongLive {
+    pub fn new(service_tx: TxType, tunnel_count: usize, cfg: &TunCfg) -> LongLive {
         info!("[TunMgr]new TunMgr");
         let capacity = tunnel_count;
 
@@ -66,7 +66,7 @@ impl TunMgr {
             current_tun_idx: 0,
             request_quota: cfg.request_quota as u16,
             token,
-            service_tx:service_tx,
+            service_tx: service_tx,
             udpx_tx: None,
             access_log: HashSet::default(),
         }))
@@ -111,7 +111,8 @@ impl TunMgr {
         tunnels[index] = Some(tun.clone());
 
         if self.udpx_tx.is_some() {
-            tun.borrow_mut().set_udpx_tx(self.udpx_tx.as_ref().unwrap().clone());
+            tun.borrow_mut()
+                .set_udpx_tx(self.udpx_tx.as_ref().unwrap().clone());
         }
 
         info!("[TunMgr]tunnel created, index:{}", index);
@@ -377,7 +378,7 @@ impl TunMgr {
 
                 future::ready(())
             });
-            
+
         let t_fut = async move {
             task.await;
             info!("[TunMgr] keepalive timer future completed");
@@ -387,7 +388,7 @@ impl TunMgr {
         tokio::task::spawn_local(t_fut);
     }
 
-    pub fn log_access(&mut self, peer_addr: std::net::IpAddr , target_ip : std::net::IpAddr) {
+    pub fn log_access(&mut self, peer_addr: std::net::IpAddr, target_ip: std::net::IpAddr) {
         // send to service
         self.access_log.insert((peer_addr, target_ip));
     }
@@ -407,24 +408,28 @@ impl TunMgr {
         }
     }
 
-    pub fn udp_proxy_north(&mut self, msg: BytesMut, src_addr: SocketAddr, dst_addr: SocketAddr, hash_code:usize) {
+    pub fn udp_proxy_north(
+        &mut self,
+        msg: BytesMut,
+        src_addr: SocketAddr,
+        dst_addr: SocketAddr,
+        hash_code: usize,
+    ) {
         // select a tunnel, forward udp msg to dv via that tunnnel
         let tun_idx = hash_code % self.tunnels.len();
-        
-        match self.tunnels.get(tun_idx) {
-            Some(tun_some) => {
-                match tun_some {
-                    Some(tun) => {
-                        let tun = tun.borrow();
-                        tun.udp_proxy_north(msg, src_addr, dst_addr);
 
-                        self.access_log.insert((src_addr.ip(), dst_addr.ip()));
-                    }
-                    None => {
-                        error!("[TunMgr]udp_proxy_north, no tunnel found at:{}", tun_idx);
-                    }
+        match self.tunnels.get(tun_idx) {
+            Some(tun_some) => match tun_some {
+                Some(tun) => {
+                    let tun = tun.borrow();
+                    tun.udp_proxy_north(msg, src_addr, dst_addr);
+
+                    self.access_log.insert((src_addr.ip(), dst_addr.ip()));
                 }
-            }
+                None => {
+                    error!("[TunMgr]udp_proxy_north, no tunnel found at:{}", tun_idx);
+                }
+            },
             None => {}
         }
     }

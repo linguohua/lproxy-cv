@@ -2,19 +2,22 @@ use super::Cmd;
 use super::THeader;
 use super::{Reqq, Request, TunStub};
 use crate::config::KEEP_ALIVE_INTERVAL;
+use crate::lws::{RMessage, WMessage};
+use crate::service::SubServiceCtlCmd;
 use crate::tunnels::theader::THEADER_SIZE;
 use byte::*;
-use tokio::sync::mpsc::UnboundedSender;
+use bytes::Buf;
+use bytes::BytesMut;
 use log::{error, info};
 use nix::sys::socket::{shutdown, Shutdown};
-use std::net::{IpAddr::{self, V4, V6}, Ipv6Addr, Ipv4Addr};
+use std::net::SocketAddr;
+use std::net::{
+    IpAddr::{self, V4, V6},
+    Ipv4Addr, Ipv6Addr,
+};
 use std::os::unix::io::RawFd;
 use std::time::Instant;
-use bytes::BytesMut;
-use std::net::SocketAddr;
-use crate::service::SubServiceCtlCmd;
-use crate::lws::{RMessage, WMessage};
-use bytes::Buf;
+use tokio::sync::mpsc::UnboundedSender;
 
 type UdpxTxType = UnboundedSender<SubServiceCtlCmd>;
 pub struct Tunnel {
@@ -53,7 +56,7 @@ impl Tunnel {
         let capacity = cap;
         Tunnel {
             tx: tx,
-            udpx_tx:None,
+            udpx_tx: None,
             index: idx,
             requests: Reqq::new(capacity),
             capacity: capacity as u16,
@@ -511,17 +514,20 @@ impl Tunnel {
         let r = self.tx.send(wmsg);
         match r {
             Err(e) => {
-                error!("[Tunnel]{} tunnel on_udp_proxy_forward error:{}", self.index, e);
+                error!(
+                    "[Tunnel]{} tunnel on_udp_proxy_forward error:{}",
+                    self.index, e
+                );
             }
-            _ => {
-            }
+            _ => {}
         }
     }
 
-    fn write_socketaddr(bs: &mut [u8], offset: usize, addr : &SocketAddr) -> usize {
+    fn write_socketaddr(bs: &mut [u8], offset: usize, addr: &SocketAddr) -> usize {
         let mut new_offset = offset;
         let new_offset = &mut new_offset;
-        bs.write_with::<u16>(new_offset, addr.port() as u16, LE).unwrap(); // port
+        bs.write_with::<u16>(new_offset, addr.port() as u16, LE)
+            .unwrap(); // port
 
         match addr.ip() {
             V4(v4) => {
@@ -545,8 +551,11 @@ impl Tunnel {
 
     fn on_udpx_south(&self, mut msg: RMessage) {
         if self.udpx_tx.is_none() {
-            error!("[Tunnel]{} tunnel on_udpx_msg error, no udpx_tx valid", self.index);
-            return
+            error!(
+                "[Tunnel]{} tunnel on_udpx_msg error, no udpx_tx valid",
+                self.index
+            );
+            return;
         }
 
         let offset = &mut 0;
@@ -567,8 +576,7 @@ impl Tunnel {
             Err(e) => {
                 error!("[Tunnel]{} tunnel on_udpx_msg send error:{}", self.index, e);
             }
-            _ => {
-            }
+            _ => {}
         }
     }
 

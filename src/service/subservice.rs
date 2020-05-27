@@ -2,27 +2,27 @@ use crate::config::TunCfg;
 use crate::dns;
 use crate::requests;
 use crate::tunnels;
-use crate::xport;
 use crate::udpx;
+use crate::xport;
 
+use bytes::BytesMut;
+use futures_03::channel::oneshot;
 use futures_03::prelude::*;
-use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
 use log::{error, info};
 use std::cell::RefCell;
 use std::fmt;
+use std::net::SocketAddr;
 use std::rc::Rc;
 use std::sync::Arc;
 use tokio::net::TcpStream;
-use futures_03::channel::oneshot;
-use bytes::BytesMut;
-use std::net::SocketAddr;
+use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
 
 pub enum SubServiceCtlCmd {
     Stop,
     TcpTunnel(TcpStream),
     DomainsUpdate(Vec<String>),
     TunCfgUpdate(Arc<TunCfg>),
-    UdpProxy((BytesMut, SocketAddr,SocketAddr, usize )),
+    UdpProxy((BytesMut, SocketAddr, SocketAddr, usize)),
     UdpRecv((bytes::Bytes, SocketAddr, SocketAddr)),
     SetUdpTx(UnboundedSender<SubServiceCtlCmd>),
 }
@@ -43,7 +43,7 @@ impl fmt::Display for SubServiceCtlCmd {
             SubServiceCtlCmd::TcpTunnel(_) => s = "TcpTunnel",
             SubServiceCtlCmd::DomainsUpdate(_) => s = "DomainUpdate",
             SubServiceCtlCmd::TunCfgUpdate(_) => s = "TunCfgUpdate",
-            SubServiceCtlCmd::UdpProxy(_) => s = "UdpProxy", 
+            SubServiceCtlCmd::UdpProxy(_) => s = "UdpProxy",
             SubServiceCtlCmd::UdpRecv(_) => s = "UdpRecv",
             SubServiceCtlCmd::SetUdpTx(_) => s = "SetUdpTx",
         }
@@ -76,7 +76,7 @@ pub struct TunMgrStub {
 }
 
 fn start_forwarder(
-    service_tx: super::TxType, 
+    service_tx: super::TxType,
     cfg: Arc<TunCfg>,
     domains: Vec<String>,
     r_tx: oneshot::Sender<bool>,
@@ -84,9 +84,10 @@ fn start_forwarder(
     let (tx, mut rx) = unbounded_channel();
     let handler = std::thread::spawn(move || {
         let mut basic_rt = tokio::runtime::Builder::new()
-        .basic_scheduler()
-        .enable_all()
-        .build().unwrap();
+            .basic_scheduler()
+            .enable_all()
+            .build()
+            .unwrap();
 
         // let handle = rt.handle();
         let local = tokio::task::LocalSet::new();
@@ -119,7 +120,7 @@ fn start_forwarder(
                         error!("[SubService]forwarder unknown ctl cmd:{}", cmd);
                     }
                 }
-            };
+            }
         };
 
         local.spawn_local(fut);
@@ -137,9 +138,10 @@ fn start_xtunnel(cfg: Arc<TunCfg>, r_tx: oneshot::Sender<bool>) -> SubServiceCtl
     let (tx, mut rx) = unbounded_channel();
     let handler = std::thread::spawn(move || {
         let mut basic_rt = tokio::runtime::Builder::new()
-        .basic_scheduler()
-        .enable_all()
-        .build().unwrap();
+            .basic_scheduler()
+            .enable_all()
+            .build()
+            .unwrap();
         // let handle = rt.handle();
         let local = tokio::task::LocalSet::new();
 
@@ -156,7 +158,7 @@ fn start_xtunnel(cfg: Arc<TunCfg>, r_tx: oneshot::Sender<bool>) -> SubServiceCtl
             r_tx.send(true).unwrap();
 
             // wait control signals
-            while let Some(cmd) =  rx.next().await {
+            while let Some(cmd) = rx.next().await {
                 match cmd {
                     SubServiceCtlCmd::Stop => {
                         let f = xtun.clone();
@@ -168,7 +170,7 @@ fn start_xtunnel(cfg: Arc<TunCfg>, r_tx: oneshot::Sender<bool>) -> SubServiceCtl
                         break;
                     }
                 }
-            };
+            }
         };
 
         local.spawn_local(fut);
@@ -192,9 +194,10 @@ fn start_reqmgr(
     let (tx, mut rx) = unbounded_channel();
     let handler = std::thread::spawn(move || {
         let mut basic_rt = tokio::runtime::Builder::new()
-        .basic_scheduler()
-        .enable_all()
-        .build().unwrap();
+            .basic_scheduler()
+            .enable_all()
+            .build()
+            .unwrap();
         // let handle = rt.handle();
         let local = tokio::task::LocalSet::new();
 
@@ -222,7 +225,7 @@ fn start_reqmgr(
                         error!("[SubService]reqmgr unknown ctl cmd:{}", cmd);
                     }
                 }
-            };
+            }
         };
 
         local.spawn_local(fut);
@@ -247,9 +250,10 @@ fn start_udpx(
     let tx2 = tx.clone();
     let handler = std::thread::spawn(move || {
         let mut basic_rt = tokio::runtime::Builder::new()
-        .basic_scheduler()
-        .enable_all()
-        .build().unwrap();
+            .basic_scheduler()
+            .enable_all()
+            .build()
+            .unwrap();
         // let handle = rt.handle();
         let local = tokio::task::LocalSet::new();
 
@@ -275,13 +279,14 @@ fn start_udpx(
                     }
                     SubServiceCtlCmd::UdpRecv((msg, src_addr, dst_addr)) => {
                         let f = udpx.clone();
-                        f.borrow_mut().on_udp_proxy_south(udpx.clone(), msg, src_addr, dst_addr);
+                        f.borrow_mut()
+                            .on_udp_proxy_south(udpx.clone(), msg, src_addr, dst_addr);
                     }
                     _ => {
                         error!("[SubService]udpx unknown ctl cmd:{}", cmd);
                     }
                 }
-            };
+            }
         };
 
         local.spawn_local(fut);
@@ -304,9 +309,10 @@ fn start_one_tunmgr(
     let (tx, mut rx) = unbounded_channel();
     let handler = std::thread::spawn(move || {
         let mut basic_rt = tokio::runtime::Builder::new()
-        .basic_scheduler()
-        .enable_all()
-        .build().unwrap();
+            .basic_scheduler()
+            .enable_all()
+            .build()
+            .unwrap();
         // let handle = rt.handle();
         let local = tokio::task::LocalSet::new();
 
@@ -339,7 +345,8 @@ fn start_one_tunmgr(
                     }
                     SubServiceCtlCmd::UdpProxy((msg, src_addr, dst_addr, hash_code)) => {
                         let f = tunmgr.clone();
-                        f.borrow_mut().udp_proxy_north(msg, src_addr, dst_addr, hash_code);
+                        f.borrow_mut()
+                            .udp_proxy_north(msg, src_addr, dst_addr, hash_code);
                     }
                     SubServiceCtlCmd::SetUdpTx(tx) => {
                         let f = tunmgr.clone();
@@ -349,7 +356,7 @@ fn start_one_tunmgr(
                         error!("[SubService]tunmgr unknown ctl cmd:{}", cmd);
                     }
                 }
-            };
+            }
 
             info!("tunmgr sub-service rx fut exit");
         };
@@ -368,28 +375,22 @@ fn start_one_tunmgr(
 async fn to_future(
     rx: oneshot::Receiver<bool>,
     ctrl: SubServiceCtl,
-) -> std::result::Result<SubServiceCtl, () > {
+) -> std::result::Result<SubServiceCtl, ()> {
     match rx.await {
-        Ok(v) => {
-            match v {
-                true => {
-                    Ok(ctrl)
-                }
-                false => {
-                    Err(())
-                }
-            }
-        }
-        Err(_) => {
-            Err(())
-        }
+        Ok(v) => match v {
+            true => Ok(ctrl),
+            false => Err(()),
+        },
+        Err(_) => Err(()),
     }
 }
 
 type SubsctlVec = Rc<RefCell<Vec<SubServiceCtl>>>;
 
-async fn start_tunmgr(service_tx: super::TxType, 
-    cfg: std::sync::Arc<TunCfg>) -> std::result::Result<SubsctlVec, SubsctlVec > {
+async fn start_tunmgr(
+    service_tx: super::TxType,
+    cfg: std::sync::Arc<TunCfg>,
+) -> std::result::Result<SubsctlVec, SubsctlVec> {
     let cpus = num_cpus::get();
     let sv = stream::iter(vec![0; cpus]);
     let subservices = Rc::new(RefCell::new(Vec::new()));
@@ -402,29 +403,27 @@ async fn start_tunmgr(service_tx: super::TxType,
         tunnels_per_mgr = 1;
     }
 
-    let fut = sv
-        .for_each(move |_| {
-            let (tx, rx) = oneshot::channel();
-            let subservices22 = subservices2.clone();
-            let stx = service_tx.clone();
-            let cfgx = cfg.clone();
-            let failed2 = failed.clone();
-            let ctl = async move {
-                let ct = to_future(rx, start_one_tunmgr(stx,
-                    cfgx, tx, tunnels_per_mgr)).await;
+    let fut = sv.for_each(move |_| {
+        let (tx, rx) = oneshot::channel();
+        let subservices22 = subservices2.clone();
+        let stx = service_tx.clone();
+        let cfgx = cfg.clone();
+        let failed2 = failed.clone();
+        let ctl = async move {
+            let ct = to_future(rx, start_one_tunmgr(stx, cfgx, tx, tunnels_per_mgr)).await;
 
-                match ct {
-                    Ok(c) => {
-                        subservices22.borrow_mut().push(c);
-                    }
-                    _ => {
-                        *failed2.borrow_mut() = true;
-                    }
+            match ct {
+                Ok(c) => {
+                    subservices22.borrow_mut().push(c);
                 }
-            };
+                _ => {
+                    *failed2.borrow_mut() = true;
+                }
+            }
+        };
 
-            ctl
-        });
+        ctl
+    });
 
     fut.await;
 
@@ -439,7 +438,7 @@ pub async fn start_subservice(
     service_tx: super::TxType,
     cfg: std::sync::Arc<TunCfg>,
     domains: Vec<String>,
-) -> std::result::Result<SubsctlVec, () > {
+) -> std::result::Result<SubsctlVec, ()> {
     let cfg2 = cfg.clone();
     let cfg3 = cfg.clone();
 
@@ -468,9 +467,14 @@ pub async fn start_subservice(
             Ok(ctl) => subservices.borrow_mut().push(ctl),
             Err(_) => return Err(subservices),
         }
-        
+
         let (tx, rx) = oneshot::channel();
-        match to_future(rx, start_forwarder(service_tx.clone(),cfg2.clone(), domains, tx)).await {
+        match to_future(
+            rx,
+            start_forwarder(service_tx.clone(), cfg2.clone(), domains, tx),
+        )
+        .await
+        {
             Ok(ctl) => subservices.borrow_mut().push(ctl),
             Err(_) => return Err(subservices),
         }
@@ -486,10 +490,9 @@ pub async fn start_subservice(
             Ok(ctl) => subservices.borrow_mut().push(ctl),
             Err(_) => return Err(subservices),
         }
-        
+
         Ok(subservices)
     };
- 
 
     match ff.await {
         Ok(v) => Ok(v),

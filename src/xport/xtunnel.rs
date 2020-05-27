@@ -5,7 +5,7 @@ use crate::lws::{RMessage, TMessage, WMessage};
 use crate::tunnels::{Cmd, THeader, THEADER_SIZE};
 use byte::*;
 use failure::Error;
-use tokio::sync::mpsc::UnboundedSender;
+use futures_03::prelude::*;
 use log::{debug, error, info};
 use nix::sys::socket::{shutdown, Shutdown};
 use std::cell::RefCell;
@@ -13,7 +13,7 @@ use std::os::unix::io::RawFd;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 use stream_cancel::{Trigger, Tripwire};
-use futures_03::prelude::*;
+use tokio::sync::mpsc::UnboundedSender;
 
 pub type LongLive = Rc<RefCell<XTunnel>>;
 
@@ -171,11 +171,11 @@ impl XTunnel {
                 future::ready(())
             });
 
-            let t_fut = async move {
-                task.await;
-                info!("[XTunnel] keepalive timer future completed");
-                ()
-            };
+        let t_fut = async move {
+            task.await;
+            info!("[XTunnel] keepalive timer future completed");
+            ()
+        };
         tokio::task::spawn_local(t_fut);
     }
 

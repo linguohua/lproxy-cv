@@ -7,17 +7,17 @@ use super::LocalResolver;
 use super::UdpServer;
 use crate::config::{
     TunCfg, IPSET_NETHASH_TABLE_NULL, IPSET_TABLE6_NULL, IPSET_TABLE_NULL, KEEP_ALIVE_INTERVAL,
-    LOCAL_SERVER, LOCAL_DNS_SERVER_PORT,
+    LOCAL_DNS_SERVER_PORT, LOCAL_SERVER,
 };
+use crate::service::{DNSAddRecord, Instruction, TxType};
 use failure::Error;
+use futures_03::prelude::*;
 use log::{debug, error, info};
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::result::Result;
-use std::time::{Duration};
+use std::time::Duration;
 use stream_cancel::{Trigger, Tripwire};
-use futures_03::prelude::*;
-use crate::service::{DNSAddRecord, TxType, Instruction};
 
 type TunnelItem = Option<Rc<RefCell<DnsTunnel>>>;
 
@@ -50,7 +50,11 @@ pub struct Forwarder {
 }
 
 impl Forwarder {
-    pub fn new(service_tx:TxType, cfg: &TunCfg, domain_array: Vec<String>) -> Rc<RefCell<Forwarder>> {
+    pub fn new(
+        service_tx: TxType,
+        cfg: &TunCfg,
+        domain_array: Vec<String>,
+    ) -> Rc<RefCell<Forwarder>> {
         let capacity = cfg.dns_tunnel_number;
 
         let mut vec = Vec::with_capacity(capacity);
@@ -131,7 +135,6 @@ impl Forwarder {
             let mut lresolver = self.lresolver.borrow_mut();
             lresolver.start(self, s)
         }
-
     }
 
     pub fn on_dns_udp_created(&self, udps: &UdpServer, s: LongLife) {
@@ -414,7 +417,7 @@ impl Forwarder {
             }
         }
 
-        if let Err(e) = self.service_tx.send(Instruction::DNSAdd(da)){
+        if let Err(e) = self.service_tx.send(Instruction::DNSAdd(da)) {
             error!("[Forwarder]save_ipset unbounded_send failed:{}", e);
         }
     }
@@ -535,11 +538,11 @@ impl Forwarder {
                 future::ready(())
             });
 
-            let t_fut = async move {
-                task.await;
-                info!("[Forwarder] keepalive timer future completed");
-                ()
-            };
+        let t_fut = async move {
+            task.await;
+            info!("[Forwarder] keepalive timer future completed");
+            ()
+        };
         tokio::task::spawn_local(t_fut);
     }
 }

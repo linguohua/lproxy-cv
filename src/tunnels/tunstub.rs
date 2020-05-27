@@ -1,6 +1,6 @@
 use crate::lws::WMessage;
-use tokio::sync::mpsc::UnboundedSender;
 use std::fmt;
+use tokio::sync::mpsc::UnboundedSender;
 
 pub struct TunStub {
     pub tunnel_tx: UnboundedSender<WMessage>,

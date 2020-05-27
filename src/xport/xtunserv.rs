@@ -75,7 +75,7 @@ pub fn xtunel_connect(xtun: &mut XTunnel, ll: LongLive) {
             }
         };
 
-        let send_fut = rx.map(move |x|{Ok(x)}).forward(sink);
+        let send_fut = rx.map(move |x| Ok(x)).forward(sink);
 
         // Wait for either of futures to complete.
         future::select(receive_fut.boxed_local(), send_fut).await;

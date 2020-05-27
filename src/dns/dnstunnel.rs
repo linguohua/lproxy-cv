@@ -4,7 +4,6 @@ use crate::config::KEEP_ALIVE_INTERVAL;
 use crate::lws::{RMessage, WMessage};
 use crate::tunnels::Cmd;
 use byte::*;
-use tokio::sync::mpsc::UnboundedSender;
 use log::{error, info};
 use nix::sys::socket::{shutdown, Shutdown};
 use std::net::IpAddr::V4;
@@ -12,6 +11,7 @@ use std::net::IpAddr::V6;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::os::unix::io::RawFd;
 use std::time::Instant;
+use tokio::sync::mpsc::UnboundedSender;
 
 type TxType = UnboundedSender<(bytes::Bytes, std::net::SocketAddr)>;
 
@@ -108,7 +108,7 @@ impl DnsTunnel {
                             let sockaddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::from(ip32)), port);
 
                             tx.send((bytes::Bytes::from(content2.to_vec()), sockaddr))
-                                 .unwrap(); // udp send should not failed!
+                                .unwrap(); // udp send should not failed!
                         }
                     }
                     None => {}

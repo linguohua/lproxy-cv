@@ -6,9 +6,9 @@ use std::cell::RefCell;
 use std::net::SocketAddr;
 use std::rc::Rc;
 
-use tokio::net::{UdpSocket};
 use futures_03::prelude::*;
 use stream_cancel::{Trigger, Tripwire};
+use tokio::net::UdpSocket;
 use tokio::sync::mpsc;
 
 type TxType = mpsc::UnboundedSender<(bytes::Bytes, std::net::SocketAddr)>;
@@ -54,7 +54,7 @@ impl LocalResolver {
         self.set_tx(tx, trigger);
         fw.on_lresolver_udp_created(self, forward);
 
-        let send_fut = rx.map(move |x|{Ok(x)}).forward(a_sink);
+        let send_fut = rx.map(move |x| Ok(x)).forward(a_sink);
 
         let receive_fut = async move {
             let mut a_stream = a_stream.take_until(tripwire);
@@ -68,14 +68,15 @@ impl LocalResolver {
                             error!("[LocalResolver] on_resolver_udp_msg failed");
                             break;
                         }
-                    },
+                    }
                     Err(e) => {
                         error!("[LocalResolver] a_stream.next failed:{}", e);
                         break;
                     }
                 };
-        }};
- 
+            }
+        };
+
         // Wait for one future to complete.
         let select_fut = async move {
             let receive_fut = receive_fut.boxed_local();

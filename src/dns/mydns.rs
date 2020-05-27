@@ -1,12 +1,12 @@
 use super::{BytePacketBuffer, DnsPacket, DnsQuestion, DnsRecord, QueryType};
 use crate::config::DEFAULT_DNS_SERVER;
 use futures_03::prelude::*;
+use futures_03::task::{Context, Poll};
 use log::{error, info};
 use std::io::{Error, ErrorKind};
 use std::net::IpAddr;
-use tokio::net::UdpSocket;
 use std::pin::Pin;
-use futures_03::task::{Context, Poll};
+use tokio::net::UdpSocket;
 
 pub enum MyDnsState {
     Init,
@@ -70,7 +70,7 @@ impl MyDns {
         let mut req_buffer = BytePacketBuffer::new(&mut reqbuff);
         packet.write(&mut req_buffer).unwrap(); // should not failed
 
-        let addr: std::net::SocketAddr  = "0.0.0.0:0"
+        let addr: std::net::SocketAddr = "0.0.0.0:0"
             .parse()
             .map_err(|_| Error::new(ErrorKind::Other, "bind addr parse error"))?;
         let u = std::net::UdpSocket::bind(addr)?;

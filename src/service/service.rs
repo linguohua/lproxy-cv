@@ -1,21 +1,21 @@
-use std::net::IpAddr;
-use super::{SubServiceCtl, SubServiceCtlCmd, SubServiceType, AccLog, DNSAddRecord};
+use super::{AccLog, DNSAddRecord, SubServiceCtl, SubServiceCtlCmd, SubServiceType};
 use crate::config::{self, CFG_MONITOR_INTERVAL, LPROXY_SCRIPT};
 use crate::htp;
-use tokio::sync::mpsc::UnboundedSender;
+use futures_03::prelude::*;
 use log::{debug, error, info};
 use mac_address::MacAddressIterator;
+use protobuf::Message;
 use std::cell::RefCell;
 use std::env;
 use std::fmt;
-use std::path::{Path, PathBuf};
-use std::rc::Rc;
-use std::time::{Duration};
-use stream_cancel::{Trigger, Tripwire};
-use protobuf::{Message};
-use futures_03::prelude::*;
 use std::fs::File;
 use std::io::prelude::*;
+use std::net::IpAddr;
+use std::path::{Path, PathBuf};
+use std::rc::Rc;
+use std::time::Duration;
+use stream_cancel::{Trigger, Tripwire};
+use tokio::sync::mpsc::UnboundedSender;
 
 // state constants
 const STATE_STOPPED: u8 = 0;
@@ -91,14 +91,12 @@ impl Service {
             self.save_instruction_trigger(trigger);
 
             let clone = s.clone();
-            let fut = async move { 
-                let fx_fut = rx
-                .take_until(tripwire)
-                .for_each(move |ins| {
+            let fut = async move {
+                let fx_fut = rx.take_until(tripwire).for_each(move |ins| {
                     Service::process_instruction(clone.clone(), ins);
                     future::ready(())
                 });
-                
+
                 fx_fut.await;
                 info!("[Service] instruction rx future completed");
             };
@@ -216,7 +214,9 @@ impl Service {
                             if rsp.need_upgrade && rsp.upgrade_url.len() > 0 {
                                 let dir = Service::get_upgrade_target_filepath();
                                 if dir.is_none() {
-                                    error!("[Service]do_auth, failed to upgrade, no target dir found");
+                                    error!(
+                                        "[Service]do_auth, failed to upgrade, no target dir found"
+                                    );
                                 } else {
                                     let sclone2 = sclone.clone();
                                     let mut rf = sclone.borrow_mut();
@@ -227,17 +227,19 @@ impl Service {
                                 let mut cfg = rsp.tuncfg.take().unwrap();
                                 let mut rf = sclone.borrow_mut();
                                 rf.domains = Some(cfg.domain_array.take().unwrap());
-    
+
                                 info!(
                                     "[Service]do_auth http response, tunnel count:{}, req cap:{}",
                                     cfg.tunnel_number, cfg.tunnel_req_cap
                                 );
-    
+
                                 rf.save_cfg(cfg);
                                 rf.fire_instruction(Instruction::StartSubServices);
                                 retry = false;
                             } else {
-                                error!("[Service]do_auth http request failed, no tuncfg, retry later");
+                                error!(
+                                    "[Service]do_auth http request failed, no tuncfg, retry later"
+                                );
                             }
                         } else {
                             error!(
@@ -249,16 +251,21 @@ impl Service {
                         if retry {
                             let seconds = 30;
                             error!("[Service]do_auth retry {} seconds later", seconds);
-                            Service::delay_post_instruction(sclone.clone(), seconds, Instruction::Auth);
+                            Service::delay_post_instruction(
+                                sclone.clone(),
+                                seconds,
+                                Instruction::Auth,
+                            );
                         }
-                }},
+                    }
+                }
                 Err(e) => {
                     let seconds = 5;
                     error!(
                         "[Service]do_auth http request failed, error:{}, retry {} seconds later",
                         e, seconds
                     );
-    
+
                     Service::delay_post_instruction(s.clone(), seconds, Instruction::Auth);
                 }
             }
@@ -332,18 +339,18 @@ impl Service {
                             if rsp.tuncfg.is_some() {
                                 let mut cfg = rsp.tuncfg.take().unwrap();
                                 let mut rf = sclone.borrow_mut();
-    
+
                                 if cfg.domain_array.is_some() {
                                     let domains = cfg.domain_array.take().unwrap();
                                     if domains.len() > 0 {
                                         rf.notify_forwarder_update_domains(domains);
                                     }
                                 }
-    
+
                                 rf.save_cfg(cfg);
                                 rf.notify_subservice_update_cfg();
                             }
-    
+
                             if rsp.need_upgrade && rsp.upgrade_url.len() > 0 {
                                 // do upgrade
                                 // download from upgrade_url, save to /a or /b directory
@@ -366,7 +373,7 @@ impl Service {
                             }
                         }
                     }
-                },
+                }
                 Err(e) => {
                     error!("[Service]do_cfg_monitor http request failed, error:{}", e);
                 }
@@ -397,7 +404,7 @@ impl Service {
         // no monitor url configured
         if access_report_url.len() < 1 || token.len() < 1 {
             // just clear it
-            s.borrow_mut().acc_log.clear_log();            
+            s.borrow_mut().acc_log.clear_log();
             return;
         }
 
@@ -408,7 +415,7 @@ impl Service {
             if s2.acc_log.is_empty() {
                 return;
             }
-            
+
             pb = s2.acc_log.dump_to_pb();
             s2.acc_log.clear_log();
         }
@@ -437,7 +444,7 @@ impl Service {
             }
         };
 
-        tokio::task::spawn_local(fut);        
+        tokio::task::spawn_local(fut);
     }
 
     fn notify_forwarder_update_domains(&self, domains: Vec<String>) {
@@ -510,7 +517,7 @@ impl Service {
                                 "[Service] upgrade: download file completed, len:{}, now try write to file",
                                 body.len()
                             );
-    
+
                             // write to file
                             let file = File::create(&filepath);
                             match file {
@@ -525,7 +532,9 @@ impl Service {
                                             info!("[Service] upgrade: write to file ok, now chmod");
                                             super::fileto_excecutable(filepath.to_str().unwrap());
                                             // trigger restart bash script
-                                            super::call_bash_to_restart(scriptpath.to_str().unwrap());
+                                            super::call_bash_to_restart(
+                                                scriptpath.to_str().unwrap(),
+                                            );
                                         }
                                     }
                                 }
@@ -535,7 +544,7 @@ impl Service {
                             }
                         }
                     }
-    
+
                     s.borrow_mut().is_upgrading = false;
                 }
                 Err(e) => {
@@ -627,12 +636,12 @@ impl Service {
                     while let Some(ctl) = vec_subservices.pop() {
                         s2.subservices.push(ctl);
                     }
-    
+
                     s2.state = STATE_RUNNING;
                     s2.config_sys();
-    
+
                     Service::start_monitor_timer(s2, clone.clone());
-                },
+                }
                 Err(_) => {
                     Service::delay_post_instruction(clone2, 5, Instruction::Auth);
                 }
@@ -655,7 +664,7 @@ impl Service {
         s1.borrow_mut().acc_log.log(v);
     }
 
-    fn do_dns_add(s1: LongLive, da :DNSAddRecord) {
+    fn do_dns_add(s1: LongLive, da: DNSAddRecord) {
         s1.borrow_mut().acc_log.domain_add(da);
     }
 
@@ -732,11 +741,11 @@ impl Service {
 
                 future::ready(())
             });
-            let t_fut = async move {
-                task.await;
-                info!("[Service] monitor timer future completed");
-                ()
-            };
+        let t_fut = async move {
+            task.await;
+            info!("[Service] monitor timer future completed");
+            ()
+        };
         tokio::task::spawn_local(t_fut);
     }
 
@@ -757,7 +766,7 @@ impl Service {
                     {
                         continue;
                     }
-    
+
                     macs.push(address.to_string());
                 }
             }

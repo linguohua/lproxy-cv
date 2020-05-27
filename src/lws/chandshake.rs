@@ -1,9 +1,9 @@
 use bytes::{BufMut, BytesMut};
 use futures_03::prelude::*;
 use futures_03::ready;
+use futures_03::task::{Context, Poll};
 use std::io::Error;
 use std::pin::Pin;
-use futures_03::task::{Context, Poll};
 use tokio::io::{AsyncRead, AsyncWrite};
 
 pub enum CHState {
@@ -74,12 +74,12 @@ where
 {
     type Output = std::result::Result<(T, Option<Vec<u8>>), Error>;
 
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output>{
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let self_mut = self.get_mut();
         loop {
             match self_mut.state {
                 CHState::WritingHeader => {
-                    // write out 
+                    // write out
                     // let io = self.io.as_mut().unwrap();
                     let mut io = self_mut.io.as_mut().unwrap();
                     let pin_io = Pin::new(&mut io);

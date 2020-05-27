@@ -1,5 +1,5 @@
 use super::ip_rules::do_bash_cmd;
-use crate::config::{DEFAULT_DNS_SERVER, LOCAL_SERVER, LOCAL_DNS_SERVER_PORT};
+use crate::config::{DEFAULT_DNS_SERVER, LOCAL_DNS_SERVER_PORT, LOCAL_SERVER};
 
 pub fn set_uci_dnsmasq_to_default() {
     let arg = format!(

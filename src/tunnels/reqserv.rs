@@ -2,6 +2,7 @@ use super::Request;
 use super::{Cmd, THeader, TunMgr, TunStub, THEADER_SIZE};
 use crate::lws::{TMessage, TcpFramed, WMessage};
 use byte::*;
+use futures_03::prelude::*;
 use log::{error, info};
 use nix::sys::socket::getsockname;
 use nix::sys::socket::SockAddr::Inet;
@@ -10,10 +11,9 @@ use std::cell::RefCell;
 use std::os::unix::io::AsRawFd;
 use std::rc::Rc;
 use std::time::Duration;
-use stream_cancel::{Tripwire};
+use stream_cancel::Tripwire;
 use tokio;
 use tokio::net::TcpStream;
-use futures_03::prelude::*;
 
 pub fn serve_sock(socket: TcpStream, mgr: Rc<RefCell<TunMgr>>) {
     // config tcp stream
@@ -89,7 +89,7 @@ pub fn serve_sock(socket: TcpStream, mgr: Rc<RefCell<TunMgr>>) {
     });
 
     // send future
-    let send_fut = rx.map(move |x|{Ok(x)}).forward(sink);
+    let send_fut = rx.map(move |x| Ok(x)).forward(sink);
 
     let send_fut = async move {
         match send_fut.await {
@@ -154,7 +154,7 @@ pub fn serve_sock(socket: TcpStream, mgr: Rc<RefCell<TunMgr>>) {
     };
 
     // Wait for both futures to complete.
-    
+
     tokio::task::spawn_local(join_fut);
 }
 

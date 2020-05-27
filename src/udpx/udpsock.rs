@@ -1,18 +1,17 @@
-use std::os::unix::io::RawFd;
-use tokio::io::PollEvented;
+use bytes::buf::BufMut;
 use bytes::BytesMut;
 use failure::Error;
-use std::net::SocketAddr;
 use futures_03::prelude::*;
 use futures_03::ready;
-use std::pin::Pin;
 use futures_03::task::{Context, Poll};
-use std::os::unix::io::AsRawFd;
 use std::io;
-use bytes::buf::BufMut;
+use std::net::SocketAddr;
+use std::os::unix::io::AsRawFd;
+use std::os::unix::io::RawFd;
+use std::pin::Pin;
+use tokio::io::PollEvented;
 
-
-const INITIAL_RD_CAPACITY:usize = 640;
+const INITIAL_RD_CAPACITY: usize = 640;
 
 pub struct UdpSocketEx {
     io: PollEvented<mio::net::UdpSocket>,
@@ -27,7 +26,7 @@ impl UdpSocketEx {
         super::set_ip_recv_origdstaddr(rawfd).unwrap();
 
         UdpSocketEx {
-            io:PollEvented::new(sys).unwrap(),
+            io: PollEvented::new(sys).unwrap(),
             rawfd,
             rd: BytesMut::with_capacity(INITIAL_RD_CAPACITY),
         }
@@ -39,7 +38,7 @@ impl UdpSocketEx {
         buf: &mut [u8],
     ) -> Poll<Result<(usize, SocketAddr, SocketAddr), io::Error>> {
         ready!(self.io.poll_read_ready(cx, mio::Ready::readable()))?;
-        
+
         let rawfd = self.rawfd;
         match super::recv_sas(rawfd, buf) {
             Ok((n, src_addr, dst_addr)) => {
@@ -61,12 +60,9 @@ impl UdpSocketEx {
 }
 
 impl Stream for UdpSocketEx {
-    type Item = std::result::Result<(BytesMut, SocketAddr, SocketAddr),Error>;
+    type Item = std::result::Result<(BytesMut, SocketAddr, SocketAddr), Error>;
 
-    fn poll_next(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-    ) -> Poll<Option<Self::Item>> {
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let pin = self.get_mut();
 
         pin.rd.reserve(INITIAL_RD_CAPACITY);

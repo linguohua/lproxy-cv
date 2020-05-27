@@ -20,7 +20,7 @@ pub struct TunCfg {
     pub cfg_monitor_url: String,
 
     pub cfg_access_report_url: String,
-    pub work_as_global : bool,
+    pub work_as_global: bool,
 }
 
 pub fn server_url() -> String {
@@ -50,7 +50,7 @@ impl AuthReq {
         for i in 0..len {
             let mac = &self.macs[i];
             macs.push_str(&format!("\"{}\"", mac));
-            if i < len -1 {
+            if i < len - 1 {
                 macs.push_str(",");
             }
         }

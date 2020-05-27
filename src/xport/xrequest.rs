@@ -1,11 +1,11 @@
 use crate::lws::WMessage;
-use tokio::sync::mpsc::UnboundedSender;
+use futures_03::task::Waker;
 use log::error;
 use nix::sys::socket::{shutdown, Shutdown};
 use std::fmt;
 use std::os::unix::io::RawFd;
 use stream_cancel::Trigger;
-use futures_03::task::Waker;
+use tokio::sync::mpsc::UnboundedSender;
 
 pub struct XRequest {
     pub index: u16,

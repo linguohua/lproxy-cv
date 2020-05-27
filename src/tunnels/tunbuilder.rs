@@ -37,7 +37,7 @@ pub fn connect(tm: &TunMgr, mgr2: Rc<RefCell<TunMgr>>, index: usize) {
     let f_fut = async move {
         // TODO: need to specify address and port
         let (framed, rawfd) = match ws_connect_async(&relay_domain, relay_port, url).await {
-            Ok((f, r)) => (f,r),
+            Ok((f, r)) => (f, r),
             Err(e) => {
                 error!("[tunbuilder]ws_connect_async failed:{}", e);
                 let mut rf = mgr2.borrow_mut();
@@ -93,7 +93,7 @@ pub fn connect(tm: &TunMgr, mgr2: Rc<RefCell<TunMgr>>, index: usize) {
             }
         };
 
-        let send_fut = rx.map(move |x|{Ok(x)}).forward(sink);
+        let send_fut = rx.map(move |x| Ok(x)).forward(sink);
 
         // Wait for either of futures to complete.
         future::select(receive_fut.boxed_local(), send_fut).await;
@@ -105,7 +105,7 @@ pub fn connect(tm: &TunMgr, mgr2: Rc<RefCell<TunMgr>>, index: usize) {
 
         ()
     };
- 
+
     tokio::task::spawn_local(f_fut);
 }
 
@@ -137,25 +137,25 @@ pub async fn ws_connect_async(
     );
 
     let net_fut = async move {
-            let ipaddr = dns::MyDns::new(relay_domain.to_string()).await?;
-            let addr = std::net::SocketAddr::new(ipaddr, relay_port);
-            let socket = tokio::net::TcpStream::connect(&addr).await?;
-            let rawfd = socket.as_raw_fd();
-            let socket = cx.connect(&host_str, socket).await;
-            let socket = match socket {
-                Ok(s) => s,
-                Err(e) => {
-                    error!("[tunbuilder] tls error {}", e);
-                    return Err(std::io::Error::new(std::io::ErrorKind::NotConnected, e));
-                }
-            };
+        let ipaddr = dns::MyDns::new(relay_domain.to_string()).await?;
+        let addr = std::net::SocketAddr::new(ipaddr, relay_port);
+        let socket = tokio::net::TcpStream::connect(&addr).await?;
+        let rawfd = socket.as_raw_fd();
+        let socket = cx.connect(&host_str, socket).await;
+        let socket = match socket {
+            Ok(s) => s,
+            Err(e) => {
+                error!("[tunbuilder] tls error {}", e);
+                return Err(std::io::Error::new(std::io::ErrorKind::NotConnected, e));
+            }
+        };
 
-            let (lsocket,tail) = lws::do_client_hanshake(socket, &host_str, &path).await?;
-            let framed = lws::LwsFramed::new(lsocket, tail);
-            Ok((framed, rawfd))
+        let (lsocket, tail) = lws::do_client_hanshake(socket, &host_str, &path).await?;
+        let framed = lws::LwsFramed::new(lsocket, tail);
+        Ok((framed, rawfd))
     };
 
-    let fut = tokio::time::timeout(Duration::from_millis(10 * 1000), net_fut);// 10 seconds
- 
+    let fut = tokio::time::timeout(Duration::from_millis(10 * 1000), net_fut); // 10 seconds
+
     fut.await?
 }

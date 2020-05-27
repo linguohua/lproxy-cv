@@ -1,15 +1,15 @@
-use futures_03::prelude::*;
-use tokio::time::Error;
-use std::pin::Pin;
-use futures_03::task::{Context, Poll};
-use futures_03::ready;
-use tokio::time::{delay_queue, DelayQueue};
 use super::UStub;
 use fnv::FnvHashMap as HashMap;
-use std::time::Duration;
+use futures_03::prelude::*;
+use futures_03::ready;
+use futures_03::task::{Context, Poll};
+use log::info;
 use std::cell::RefCell;
+use std::pin::Pin;
 use std::rc::Rc;
-use log::{info};
+use std::time::Duration;
+use tokio::time::Error;
+use tokio::time::{delay_queue, DelayQueue};
 
 pub type CacheKey = std::net::SocketAddr;
 pub type LongLiveC = Rc<RefCell<Cache>>;
@@ -26,12 +26,13 @@ impl Cache {
         Rc::new(RefCell::new(Cache {
             entries: HashMap::default(),
             expirations: DelayQueue::new(),
-            is_in_keepalive:false,
+            is_in_keepalive: false,
         }))
     }
-    
+
     pub fn insert(&mut self, ll: LongLiveC, key: CacheKey, value: UStub) {
-        let delay = self.expirations
+        let delay = self
+            .expirations
             .insert(key.clone(), Duration::from_secs(TTL_SECS));
 
         self.entries.insert(key, (value, delay));
@@ -45,11 +46,9 @@ impl Cache {
         match self.entries.get(key) {
             Some((ref v, ref k)) => {
                 self.expirations.reset(k, Duration::from_secs(TTL_SECS));
-                return Some(v)
+                return Some(v);
             }
-            _ => {
-                return None
-            }
+            _ => return None,
         }
     }
 
@@ -62,7 +61,6 @@ impl Cache {
     }
 
     fn task_keepalive(&mut self, ll: LongLiveC) {
-        
         let fut = async move {
             let cf = CacheFuture::new(ll.clone());
             match cf.await {
@@ -106,16 +104,14 @@ struct CacheFuture {
 
 impl CacheFuture {
     pub fn new(cache_ll: LongLiveC) -> Self {
-        CacheFuture {
-            cache_ll,
-        }
+        CacheFuture { cache_ll }
     }
 }
 
 impl Future for CacheFuture {
-    type Output =  std::result::Result<(), Error>;
+    type Output = std::result::Result<(), Error>;
 
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output>{
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let self_mut = self.get_mut();
         self_mut.cache_ll.borrow_mut().poll_purge(cx)
     }

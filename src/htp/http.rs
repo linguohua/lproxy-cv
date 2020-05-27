@@ -41,7 +41,7 @@ impl HTTPRequest {
         }
     }
 
-    async  fn http_exec(&self, body: Option<Vec<u8>>) -> Result<HTTPResponse, Error> {
+    async fn http_exec(&self, body: Option<Vec<u8>>) -> Result<HTTPResponse, Error> {
         let urlparsed = &self.url_parsed;
         let host = urlparsed.host_str().unwrap();
         let port = urlparsed.port_or_known_default().unwrap();
@@ -54,7 +54,7 @@ impl HTTPRequest {
         }
 
         let head_str = self.to_http_header(content_size);
-        
+
         let fut = async move {
             let ipaddr = dns::MyDns::new(host.to_string()).await?;
             let addr = std::net::SocketAddr::new(ipaddr, port);
@@ -72,7 +72,7 @@ impl HTTPRequest {
             Ok(resp)
         };
 
-        let fut = tokio::time::timeout(self.timeout, fut);// 
+        let fut = tokio::time::timeout(self.timeout, fut); //
         fut.await?
     }
 
@@ -104,7 +104,7 @@ impl HTTPRequest {
             } else {
                 vec = Vec::from(head_str.as_bytes());
             }
- 
+
             tokio::io::AsyncWriteExt::write_all(&mut socket, &vec).await?;
 
             let mut vv = Vec::new();
@@ -113,7 +113,7 @@ impl HTTPRequest {
             Ok(resp)
         };
 
-        let fut = tokio::time::timeout(self.timeout, fut);// 
+        let fut = tokio::time::timeout(self.timeout, fut); //
         fut.await?
     }
 

@@ -1,12 +1,12 @@
-use futures_03::stream::FusedStream;
 use super::{RMessage, WMessage};
 use bytes::BufMut;
 use futures_03::prelude::*;
 use futures_03::ready;
-use std::io::Error;
-use tokio::io::{AsyncRead, AsyncWrite};
-use std::pin::Pin;
+use futures_03::stream::FusedStream;
 use futures_03::task::{Context, Poll};
+use std::io::Error;
+use std::pin::Pin;
+use tokio::io::{AsyncRead, AsyncWrite};
 
 pub struct LwsFramed<T> {
     io: T,
@@ -43,14 +43,11 @@ fn read_from_tail<B: BufMut>(vec: &mut Vec<u8>, bf: &mut B) -> Vec<u8> {
 
 impl<T> Stream for LwsFramed<T>
 where
-    T: AsyncRead+Unpin,
+    T: AsyncRead + Unpin,
 {
-    type Item = std::result::Result<RMessage,Error>;
+    type Item = std::result::Result<RMessage, Error>;
 
-    fn poll_next(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-    ) -> Poll<Option<Self::Item>> {
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let self_mut = self.get_mut();
         loop {
             //self.inner.poll()
@@ -77,7 +74,7 @@ where
                 // read from io
                 let mut io = &mut self_mut.io;
                 let pin_io = Pin::new(&mut io);
-                match ready!(pin_io.poll_read_buf(cx,msg)) {
+                match ready!(pin_io.poll_read_buf(cx, msg)) {
                     Ok(n) => {
                         if n <= 0 {
                             log::info!("LwsFramed poll_read_buf n <= 0, set finished:{}", n);
@@ -104,22 +101,25 @@ where
 
 impl<T> FusedStream for LwsFramed<T>
 where
-    T: AsyncRead+Unpin,
+    T: AsyncRead + Unpin,
 {
     fn is_terminated(&self) -> bool {
-        log::info!("LwsFramed FusedStream is_terminated call:{}", self.has_finished);
+        log::info!(
+            "LwsFramed FusedStream is_terminated call:{}",
+            self.has_finished
+        );
         self.has_finished
     }
 }
 
 impl<T> Sink<WMessage> for LwsFramed<T>
 where
-    T: AsyncWrite+Unpin,
+    T: AsyncWrite + Unpin,
 {
     type Error = Error;
     fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         if self.writing.is_some() {
-            return self.poll_flush(cx)
+            return self.poll_flush(cx);
         }
 
         Poll::Ready(Ok(()))
@@ -133,12 +133,12 @@ where
 
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         let self_mut = self.get_mut();
-        
+
         if self_mut.writing.is_some() {
             let writing = self_mut.writing.as_mut().unwrap();
             loop {
                 let pin_io = Pin::new(&mut self_mut.io);
-                ready!(pin_io.poll_write_buf(cx,writing))?;
+                ready!(pin_io.poll_write_buf(cx, writing))?;
 
                 if writing.is_completed() {
                     self_mut.writing = None;

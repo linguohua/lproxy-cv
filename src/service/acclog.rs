@@ -1,7 +1,7 @@
-use std::net::IpAddr;
+use super::{AccDomain, AccReport};
 use fnv::FnvHashMap as HashMap;
 use fnv::FnvHashSet as HashSet;
-use super::{AccReport, AccDomain};
+use std::net::IpAddr;
 
 pub struct DNSAddRecord {
     pub dns_records: Vec<(String, IpAddr)>,
@@ -21,7 +21,7 @@ impl DNSAddRecord {
 
 // Acc: access domain record
 struct AccDomainRecord {
-    src_addrs : HashSet<IpAddr>,
+    src_addrs: HashSet<IpAddr>,
 }
 
 impl AccDomainRecord {
@@ -63,7 +63,7 @@ impl AccLog {
                     domain = dst_ip.to_string();
                 }
             }
-    
+
             match self.acc_domains.get_mut(&domain) {
                 Some(acc_domain1) => {
                     acc_domain1.log(*src_ip);
@@ -77,7 +77,7 @@ impl AccLog {
         }
     }
 
-    pub fn domain_add(&mut self, domain : DNSAddRecord) {
+    pub fn domain_add(&mut self, domain: DNSAddRecord) {
         for dd in domain.dns_records.iter() {
             self.domains.insert(dd.1, dd.0.to_string());
         }
@@ -97,9 +97,7 @@ impl AccLog {
                     IpAddr::V4(v4) => {
                         pad.srcIP.push(u32::from_be_bytes(v4.octets()));
                     }
-                    _ => {
-
-                    }
+                    _ => {}
                 }
             }
 

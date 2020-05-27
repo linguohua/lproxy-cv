@@ -1,13 +1,13 @@
 use super::DnsTunnel;
 use super::Forwarder;
 use crate::tunnels::ws_connect_async;
-use tokio::sync::mpsc::UnboundedSender;
 use futures_03::prelude::*;
 use log::{debug, error, info};
 use nix::sys::socket::{shutdown, Shutdown};
 use std::cell::RefCell;
 use std::rc::Rc;
 use tokio;
+use tokio::sync::mpsc::UnboundedSender;
 use url;
 
 pub type TxType = UnboundedSender<(bytes::Bytes, std::net::SocketAddr)>;
@@ -28,7 +28,7 @@ pub fn connect(fw: &Forwarder, mgr2: Rc<RefCell<Forwarder>>, index: usize, udp_t
     // TODO: need to specify address and port
     let f_fut = async move {
         let (ws_stream, rawfd) = match ws_connect_async(&relay_domain, relay_port, url).await {
-            Ok((f, r)) => (f,r),
+            Ok((f, r)) => (f, r),
             Err(e) => {
                 error!("[dnstunbuilder]ws_connect_async failed:{}", e);
                 let mut rf = mgr4.borrow_mut();
@@ -52,9 +52,8 @@ pub fn connect(fw: &Forwarder, mgr2: Rc<RefCell<Forwarder>>, index: usize, udp_t
                 // TODO: should return directly
                 if let Err(e) = shutdown(rawfd, Shutdown::Both) {
                     error!("[dnstunbuilder]shutdown rawfd failed:{}", e);
-                    
                 }
-                return
+                return;
             }
         }
 
@@ -69,7 +68,7 @@ pub fn connect(fw: &Forwarder, mgr2: Rc<RefCell<Forwarder>>, index: usize, udp_t
                         // post to manager
                         let mut clone = t.borrow_mut();
                         clone.on_tunnel_msg(m, &mgr5.borrow());
-                    },
+                    }
                     Err(e) => {
                         error!("[dnstunbuilder] rx-shit:{}", e);
                         break;
@@ -78,9 +77,7 @@ pub fn connect(fw: &Forwarder, mgr2: Rc<RefCell<Forwarder>>, index: usize, udp_t
             }
         };
 
-        let mut rxx = rx.map(move |x|{
-            Ok(x)
-        });
+        let mut rxx = rx.map(move |x| Ok(x));
         let send_fut = sink.send_all(&mut rxx);
 
         // Wait for either of futures to complete.
@@ -90,7 +87,7 @@ pub fn connect(fw: &Forwarder, mgr2: Rc<RefCell<Forwarder>>, index: usize, udp_t
             let mut rf = mgr3.borrow_mut();
             rf.on_tunnel_closed(index);
         }
- 
+
         // error!(
         //     "[dnstunbuilder]Error during the websocket handshake occurred: {}",
         //     e
