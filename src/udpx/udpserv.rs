@@ -43,9 +43,13 @@ impl UdpServer {
         self.set_trigger(trigger);
         let llx2 = llx.clone();
 
-        let receive_fut = a_stream
-            .take_until(tripwire)
-            .for_each(move |rr| {
+
+        // Wait for one future to complete.
+        let select_fut = async move {
+            let mut a_stream = a_stream
+            .take_until(tripwire);
+
+            while let Some(rr) = a_stream.next().await {
                match rr {
                     Ok((message, saddr, daddr)) => {
                         //let mut rf = ll3.borrow_mut();
@@ -55,15 +59,10 @@ impl UdpServer {
                         let rf = llx.borrow();
                         rf.on_udp_msg_forward(message, saddr, daddr);
                     },
-                    Err(e) => error!("[Udpx-Server] for_each failed:{}", e)
-                };
+                    Err(e) => {error!("[Udpx-Server] a_stream.next failed:{}", e); break;}
+                }
+            };
 
-                future::ready(())
-            });
-
-        // Wait for one future to complete.
-        let select_fut = async move {
-            receive_fut.await;
             info!("[Udpx-Server] udp both future completed");
             let mut rf = llx2.borrow_mut();
             rf.on_udp_server_closed();

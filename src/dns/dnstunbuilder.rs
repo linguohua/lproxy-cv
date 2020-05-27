@@ -60,22 +60,23 @@ pub fn connect(fw: &Forwarder, mgr2: Rc<RefCell<Forwarder>>, index: usize, udp_t
 
         // `sink` is the stream of messages going out.
         // `stream` is the stream of incoming messages.
-        let (mut sink, stream) = ws_stream.split();
-        let receive_fut = stream.for_each(move |message| {
-            debug!("[dnstunbuilder]tunnel read a message");
-            match message {
-                Ok(m) => {
-                    // post to manager
-                    let mut clone = t.borrow_mut();
-                    clone.on_tunnel_msg(m, &mgr5.borrow());
-                },
-                Err(e) => {
-                    error!("[dnstunbuilder] rx-shit:{}", e);
+        let (mut sink, mut stream) = ws_stream.split();
+        let receive_fut = async move {
+            while let Some(message) = stream.next().await {
+                debug!("[dnstunbuilder]tunnel read a message");
+                match message {
+                    Ok(m) => {
+                        // post to manager
+                        let mut clone = t.borrow_mut();
+                        clone.on_tunnel_msg(m, &mgr5.borrow());
+                    },
+                    Err(e) => {
+                        error!("[dnstunbuilder] rx-shit:{}", e);
+                        break;
+                    }
                 }
             }
-
-            future::ready(())
-        });
+        };
 
         let mut rxx = rx.map(move |x|{
             Ok(x)
@@ -83,7 +84,7 @@ pub fn connect(fw: &Forwarder, mgr2: Rc<RefCell<Forwarder>>, index: usize, udp_t
         let send_fut = sink.send_all(&mut rxx);
 
         // Wait for either of futures to complete.
-        future::select(receive_fut, send_fut).await;
+        future::select(receive_fut.boxed_local(), send_fut).await;
         info!("[dnstunbuilder] both websocket futures completed");
         {
             let mut rf = mgr3.borrow_mut();

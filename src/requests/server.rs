@@ -52,20 +52,23 @@ impl Server {
         self.save_listener_trigger(trigger);
 
         let server = async move {
+            let mut listener = 
             listener
             .incoming()
             //.map_err(|e| error!("[Server] accept failed = {:?}", e))
-            .take_until(tripwire)
-            .for_each(move |sock| {
+            .take_until(tripwire);
+
+            while let Some(sock) = listener.next().await {
                 // service new socket
                 // let mgr = mgr.clone();
                 match sock {
-                    Ok(s) => mgr.borrow_mut().on_accept_tcpstream(s),
-                    Err(e) => error!("[Server] accept failed = {:?}", e),
+                    Ok(s) => {mgr.borrow_mut().on_accept_tcpstream(s);}
+                    Err(e) => {
+                        error!("[Server] accept failed = {:?}", e);
+                        break;
+                    }
                 }
-                
-                future::ready(())
-            }).await;
+            }
             
             info!("[Server]listening future completed");
         };

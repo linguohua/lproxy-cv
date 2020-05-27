@@ -94,27 +94,23 @@ fn proxy_request_internal(
         ()
     };
 
-    let receive_fut = stream.take_until(tripwire).for_each(move |message| {
-        match message {
-            Ok(m) => {
-                let mut tun_b = tl2.borrow_mut();
-                // post to manager
-                if !tun_b.on_request_msg(m, req_idx, req_tag) {
-                    // return Err(std::io::Error::from(std::io::ErrorKind::Other));
-                    info!("[XPort]on_request_msg failed, index:{}", req_idx);
+    let receive_fut = async move { 
+        let mut stream = stream.take_until(tripwire);
+        while let Some(message) = stream.next().await {
+            match message {
+                Ok(m) => {
+                    let mut tun_b = tl2.borrow_mut();
+                    // post to manager
+                    if !tun_b.on_request_msg(m, req_idx, req_tag) {
+                        // return Err(std::io::Error::from(std::io::ErrorKind::Other));
+                        info!("[XPort]on_request_msg failed, index:{}", req_idx);
+                    }
+                }
+                Err(e) => {
+                    info!("[XPort]stream stream.next faield, index:{}, {}", req_idx, e);
                 }
             }
-            Err(e) => {
-                info!("[XPort]stream for_each faield, index:{}, {}", req_idx, e);
-            }
         }
-
-
-        future::ready(())
-    });
-
-    let receive_fut = async move { 
-        receive_fut.await;
 
         let mut tun_b = tl3.borrow_mut();
         // client(of request) send finished(FIN), indicate that

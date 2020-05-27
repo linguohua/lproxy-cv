@@ -94,26 +94,24 @@ impl UStub {
         let target_addr = *src_addr;
         // send future
         let send_fut = rx.map(move |x|{Ok(x)}).forward(a_sink);
-        let receive_fut = a_stream
-        .take_until(tripwire)
-        .for_each(move |rr| {
-            match rr {
-                Ok((message, addr)) => {
-                    let rf = ll.borrow();
-                    // post to manager
-                    info!("[UStub] start_udp_socket udp from:{} to:{}, len:{}", addr, target_addr, message.len());
-                    rf.on_udp_msg_forward(message, addr, target_addr);
-                },
-                Err(e) => error!("[UStub] for_each failed:{}", e)
-            };
-
-            future::ready(())
-        });
-
+        let receive_fut = async move {
+            let mut a_stream = a_stream.take_until(tripwire);
+            while let Some(rr) = a_stream.next().await {
+                match rr {
+                    Ok((message, addr)) => {
+                        let rf = ll.borrow();
+                        // post to manager
+                        info!("[UStub] start_udp_socket udp from:{} to:{}, len:{}", addr, target_addr, message.len());
+                        rf.on_udp_msg_forward(message, addr, target_addr);
+                    },
+                    Err(e) =>{ error!("[UStub] a_stream.next failed:{}", e); break;}
+                }
+            }
+        };
 
         // Wait for one future to complete.
         let select_fut = async move {
-            future::select(receive_fut, send_fut).await;
+            future::select(receive_fut.boxed_local(), send_fut).await;
             info!("[UStub] udp both future completed");
             let mut rf = ll2.borrow_mut();
             rf.on_ustub_closed(&target_addr);

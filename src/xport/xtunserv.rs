@@ -52,33 +52,33 @@ pub fn xtunel_connect(xtun: &mut XTunnel, ll: LongLive) {
 
         // `sink` is the stream of messages going out.
         // `stream` is the stream of incoming messages.
-        let (sink, stream) = framed.split();
+        let (sink, mut stream) = framed.split();
         let clone1 = ll.clone();
         let clone2 = ll.clone();
 
-        let receive_fut = stream.for_each(move |message| {
-            debug!("[xtunserv]tunnel read a message");
+        let receive_fut = async move {
+            while let Some(message) = stream.next().await {
+                debug!("[xtunserv]tunnel read a message");
 
-            // post to manager
-            match message {
-                Ok(m) => {
-                    // post to manager
-                    let clone_a = clone1.clone();
-                    let mut clone = clone1.borrow_mut();
-                    clone.on_tunnel_msg(m, clone_a);
-                }
-                Err(e) => {
-                    error!("[xtunserv]tunnel read a message error {}", e);
+                // post to manager
+                match message {
+                    Ok(m) => {
+                        // post to manager
+                        let clone_a = clone1.clone();
+                        let mut clone = clone1.borrow_mut();
+                        clone.on_tunnel_msg(m, clone_a);
+                    }
+                    Err(e) => {
+                        error!("[xtunserv]tunnel read a message error {}", e);
+                    }
                 }
             }
-
-            future::ready(())
-        });
+        };
 
         let send_fut = rx.map(move |x|{Ok(x)}).forward(sink);
 
         // Wait for either of futures to complete.
-        future::select(receive_fut, send_fut).await;
+        future::select(receive_fut.boxed_local(), send_fut).await;
         info!("[xtunserv] both websocket futures completed");
         {
             let mut rf = clone2.borrow_mut();
