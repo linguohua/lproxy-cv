@@ -49,28 +49,32 @@ impl UdpServer {
 
         // send future
         let send_fut = rx.map(move |x|{Ok(x)}).forward(a_sink);
-        let receive_fut = a_stream
-        .take_until(tripwire)
-        .for_each(move |rr| {
-            match rr {
-                Ok((message, addr)) => {
-                    let rf = forwarder1.borrow();
-                    // post to manager
-                    if rf.on_dns_udp_msg(message, addr) {
-                    } else {
-                        error!("[UdpServer] on_dns_udp_msg failed")
-                    }
-                },
-                Err(e) => error!("[UdpServer] for_each failed:{}", e)
-            };
+        let receive_fut = async move {
+            let mut a_stream = a_stream.take_until(tripwire);
 
-            future::ready(())
-        });
+            while let Some(rr) = a_stream.next().await {
+                match rr {
+                    Ok((message, addr)) => {
+                        let rf = forwarder1.borrow();
+                        // post to manager
+                        if rf.on_dns_udp_msg(message, addr) {
+                        } else {
+                            error!("[UdpServer] on_dns_udp_msg failed");
+                            break;
+                        }
+                    },
+                    Err(e) => {
+                        error!("[UdpServer] a_stream.next failed:{}", e);
+                        break;
+                    }
+                };
+            }
+        };
 
 
         // Wait for one future to complete.
         let select_fut = async move {
-            future::select(receive_fut, send_fut).await;
+            future::select(receive_fut.boxed_local(), send_fut).await;
             info!("[UdpServer] udp both future completed");
             let rf = forwarder2.borrow();
             rf.on_dns_udp_closed();

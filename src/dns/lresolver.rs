@@ -56,26 +56,29 @@ impl LocalResolver {
 
         let send_fut = rx.map(move |x|{Ok(x)}).forward(a_sink);
 
-        let receive_fut = a_stream
-            .take_until(tripwire)
-            .for_each(move |rr| {
-               match rr {
+        let receive_fut = async move {
+            let mut a_stream = a_stream.take_until(tripwire);
+            while let Some(rr) = a_stream.next().await {
+                match rr {
                     Ok((message, addr)) => {
                         let rf = forwarder1.borrow();
                         // post to manager
                         if rf.on_resolver_udp_msg(message, &addr) {
                         } else {
                             error!("[LocalResolver] on_resolver_udp_msg failed");
+                            break;
                         }
                     },
-                    Err(e) => error!("[LocalResolver] for_each failed:{}", e)
+                    Err(e) => {
+                        error!("[LocalResolver] a_stream.next failed:{}", e);
+                        break;
+                    }
                 };
-
-                future::ready(())
-            });
-
+        }};
+ 
         // Wait for one future to complete.
         let select_fut = async move {
+            let receive_fut = receive_fut.boxed_local();
             future::select(receive_fut, send_fut).await;
             info!("[LocalResolver] udp both future completed");
             let mut rf = forwarder2.borrow_mut();

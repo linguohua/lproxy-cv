@@ -117,25 +117,25 @@ pub fn serve_sock(socket: TcpStream, mgr: Rc<RefCell<TunMgr>>) {
     // no more data, rx's pair tx will be drop, then mpsc end, rx
     // future will end, thus both futures are ended;
     // when peer total closed(RST), then both futures will end
-    let receive_fut = stream.take_until(tripwire).for_each(move |message| {
-        let ts = &tunstub.borrow();
-        // post to manager
-        match message {
-            Ok(m) => {
-                if !on_request_msg(m, ts) {
-                    error!("[ReqServ] on_request_msg failed")
+
+    let receive_fut = async move {
+        let mut stream = stream.take_until(tripwire);
+        while let Some(message) = stream.next().await {
+            match message {
+                Ok(m) => {
+                    let ts = &tunstub.borrow();
+                    if !on_request_msg(m, ts) {
+                        error!("[ReqServ] on_request_msg failed");
+                        break;
+                    }
                 }
-            }
-            Err(e) => {
-                error!("[ReqServ] on_request_msg failed:{}", e)
+                Err(e) => {
+                    error!("[ReqServ] on_request_msg failed:{}", e);
+                    break;
+                }
             }
         }
 
-        future::ready(())
-    });
-
-    let receive_fut = async move {
-        receive_fut.await;
         // client(of request) send finished(FIN), indicate that
         // no more data to send
         let ts = &tunstub1.borrow();

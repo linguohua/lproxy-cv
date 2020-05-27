@@ -74,28 +74,29 @@ pub fn connect(tm: &TunMgr, mgr2: Rc<RefCell<TunMgr>>, index: usize) {
 
         // `sink` is the stream of messages going out.
         // `stream` is the stream of incoming messages.
-        let (sink, stream) = framed.split();
+        let (sink, mut stream) = framed.split();
 
-        let receive_fut = stream.for_each(move |message| {
-            debug!("[tunbuilder]tunnel read a message");
-            // post to manager
-            match message {
-                Ok(m) => {
-                    let mut clone = t.borrow_mut();
-                    clone.on_tunnel_msg(m);
-                }
-                Err(e) => {
-                    error!("[tunbuilder]tunnel read a message error {}", e);
+        let receive_fut = async move {
+            while let Some(message) = stream.next().await {
+                debug!("[tunbuilder]tunnel read a message");
+                // post to manager
+                match message {
+                    Ok(m) => {
+                        let mut clone = t.borrow_mut();
+                        clone.on_tunnel_msg(m);
+                    }
+                    Err(e) => {
+                        error!("[tunbuilder]tunnel read a message error {}", e);
+                        break;
+                    }
                 }
             }
-
-            future::ready(())
-        });
+        };
 
         let send_fut = rx.map(move |x|{Ok(x)}).forward(sink);
 
         // Wait for either of futures to complete.
-        future::select(receive_fut, send_fut).await;
+        future::select(receive_fut.boxed_local(), send_fut).await;
         info!("[tunbuilder] both websocket futures completed");
         {
             let mut rf = mgr1.borrow_mut();

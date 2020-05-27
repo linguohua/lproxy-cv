@@ -40,10 +40,6 @@ pub fn unset_iptables_rules() {
         "iptables -t mangle -D PREROUTING -m set --match-set LPROXY dst -j LPROXY_TCP;\
          iptables -t mangle -D PREROUTING -m set --match-set LPROXYN dst -j LPROXY_TCP;\
          iptables -t mangle -D PREROUTING -m socket -j DIVERT;\
-         iptables -t mangle -F DIVERT;\
-         iptables -t mangle -X DIVERT;\
-         iptables -t mangle -F LPROXY_TCP;\
-         iptables -t mangle -X LPROXY_TCP;\
          ip6tables -t mangle -D PREROUTING -m set --match-set LPROXY6 dst -j LPROXY_TCP;\
          ip6tables -t mangle -D PREROUTING -m socket -j DIVERT;\
          ip6tables -t mangle -F LPROXY_TCP;\
