@@ -3,9 +3,9 @@
 export LC_ALL=C
 
 # This variable is required by the OpenWrt SDK tools
-export STAGING_DIR=/home/abc/openwrt-sdk-18.06.0-ramips-mt7621_gcc-7.3.0_musl.Linux-x86_64/staging_dir
+export STAGING_DIR=/home/abc/openwrt-sdk-19.07.3-ramips-mt7621_gcc-7.5.0_musl.Linux-x86_64/staging_dir
 
-TOOLCHAIN_DIR=$STAGING_DIR/toolchain-mipsel_24kc_gcc-7.3.0_musl
+TOOLCHAIN_DIR=$STAGING_DIR/toolchain-mipsel_24kc_gcc-7.5.0_musl
 TARGET_DIR=$STAGING_DIR/target-mipsel_24kc_musl
 
 # These two variables are required by the Rust OpenSSL wrapper
