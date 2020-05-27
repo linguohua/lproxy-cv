@@ -54,6 +54,7 @@ impl Cache {
     }
 
     pub fn cleanup(&mut self) {
+        info!("[Udpx-Cache] cleanup");
         self.expirations.clear();
         for (_, mut v) in self.entries.drain() {
             v.0.cleanup(); // ustub cleanup
