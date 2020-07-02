@@ -66,7 +66,17 @@ impl Server {
                     }
                     Err(e) => {
                         error!("[Server] accept failed = {:?}", e);
-                        break;
+                        match e.raw_os_error() {
+                            Some(code) => {
+                                if code != 24 {
+                                    // error Os { code: 24, kind: Other, message: "Too many open files" }
+                                    break;
+                                }
+                            }
+                            None => {
+                                break;
+                            }
+                        }
                     }
                 }
             }
