@@ -105,12 +105,14 @@ impl Forwarder {
         for it in domain_array.iter() {
             match netlink::ipv4range_parse(&it) {
                 Ok(ir) => {
-                    if ir.mask < 32 {
-                        let ipv4 = ir.addr.octets();
-                        Forwarder::ipset_add_nethash(nsock, &ipv4[..], ir.mask);
-                    } else {
-                        let ipv4 = ir.addr.octets();
-                        Forwarder::ipset_add_iphash(nsock, &ipv4[..], IPSET_TABLE_NULL);
+                    if !ir.addr.is_loopback() && !ir.addr.is_multicast() {
+                        if ir.mask < 32 {
+                            let ipv4 = ir.addr.octets();
+                            Forwarder::ipset_add_nethash(nsock, &ipv4[..], ir.mask);
+                        } else {
+                            let ipv4 = ir.addr.octets();
+                            Forwarder::ipset_add_iphash(nsock, &ipv4[..], IPSET_TABLE_NULL);
+                        }
                     }
                 }
                 Err(_) => {
@@ -374,18 +376,22 @@ impl Forwarder {
                         addr,
                         ttl: _,
                     } => {
-                        info!("[Forwarder] try to save ipv4 into ipset:{}", addr);
-                        let ipv4 = addr.octets();
-                        Forwarder::ipset_add_iphash(&self.nsock, &ipv4[..], IPSET_TABLE_NULL);
+                        if !addr.is_loopback() && !addr.is_multicast() {
+                            info!("[Forwarder] try to save ipv4 into ipset:{}", addr);
+                            let ipv4 = addr.octets();
+                            Forwarder::ipset_add_iphash(&self.nsock, &ipv4[..], IPSET_TABLE_NULL);
+                        }
                     }
                     DnsRecord::AAAA {
                         domain: _,
                         addr,
                         ttl: _,
                     } => {
-                        let ipv6 = addr.octets();
-                        info!("[Forwarder] try to save ipv6 into ipset:{}", addr);
-                        Forwarder::ipset_add_iphash(&self.nsock, &ipv6[..], IPSET_TABLE6_NULL);
+                        if !addr.is_loopback() && !addr.is_multicast() {
+                            let ipv6 = addr.octets();
+                            info!("[Forwarder] try to save ipv6 into ipset:{}", addr);
+                            Forwarder::ipset_add_iphash(&self.nsock, &ipv6[..], IPSET_TABLE6_NULL);
+                        }
                     }
                     _ => {}
                 }
