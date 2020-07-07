@@ -256,7 +256,7 @@ impl Service {
                     }
                 }
                 Err(e) => {
-                    let seconds = 5;
+                    let seconds = 15;
                     error!(
                         "[Service]do_auth http request failed, error:{}, retry {} seconds later",
                         e, seconds
