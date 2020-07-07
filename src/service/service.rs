@@ -247,16 +247,12 @@ impl Service {
                                 rsp.error
                             );
                         }
+                    }
 
-                        if retry {
-                            let seconds = 30;
-                            error!("[Service]do_auth retry {} seconds later", seconds);
-                            Service::delay_post_instruction(
-                                sclone.clone(),
-                                seconds,
-                                Instruction::Auth,
-                            );
-                        }
+                    if retry {
+                        let seconds = 30;
+                        error!("[Service]do_auth retry {} seconds later", seconds);
+                        Service::delay_post_instruction(sclone.clone(), seconds, Instruction::Auth);
                     }
                 }
                 Err(e) => {
