@@ -485,10 +485,12 @@ pub async fn start_subservice(
             Err(_) => return Err(subservices),
         }
 
-        let (tx, rx) = oneshot::channel();
-        match to_future(rx, start_xtunnel(cfg3.clone(), tx)).await {
-            Ok(ctl) => subservices.borrow_mut().push(ctl),
-            Err(_) => return Err(subservices),
+        if cfg3.xport_url.len() > 0 {
+            let (tx, rx) = oneshot::channel();
+            match to_future(rx, start_xtunnel(cfg3.clone(), tx)).await {
+                Ok(ctl) => subservices.borrow_mut().push(ctl),
+                Err(_) => return Err(subservices),
+            }    
         }
 
         Ok(subservices)

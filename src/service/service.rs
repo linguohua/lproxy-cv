@@ -733,7 +733,9 @@ impl Service {
                 debug!("[Service]monitor timer fire; instant={:?}", instant);
 
                 let rf = s2.borrow_mut();
-                rf.fire_instruction(Instruction::ServerCfgMonitor);
+                if rf.tuncfg.as_ref().unwrap().cfg_monitor_url.len() > 0 {
+                    rf.fire_instruction(Instruction::ServerCfgMonitor);
+                }
 
                 future::ready(())
             });

@@ -24,7 +24,7 @@ pub struct TunCfg {
 }
 
 pub fn server_url() -> String {
-    "http://103.39.232.231:8002/auth".to_string()
+    "https://abc.com/xyz".to_string()
 }
 
 pub struct AuthReq {
@@ -137,17 +137,17 @@ impl AuthResp {
 
             let xport_url = match v_tuncfg["xport_url"].as_str() {
                 Some(t) => t.to_string(),
-                None => "https://localhost:8000/xportlws".to_string(),
+                None => String::default(),
             };
 
             let cfg_monitor_url = match v_tuncfg["cfg_monitor_url"].as_str() {
                 Some(t) => t.to_string(),
-                None => "https://localhost:8000/cfgmonitor".to_string(),
+                None => String::default(),
             };
 
             let cfg_access_report_url = match v_tuncfg["cfg_access_report_url"].as_str() {
                 Some(t) => t.to_string(),
-                None => "https://localhost:8000/accreport".to_string(),
+                None => String::default(),
             };
 
             let tunnel_req_cap = match v_tuncfg["tunnel_req_cap"].as_u64() {
