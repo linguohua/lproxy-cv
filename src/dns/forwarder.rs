@@ -28,7 +28,7 @@ pub struct Forwarder {
     pub relay_domain: String,
     pub relay_port: u16,
     pub dns_tun_url: String,
-
+    dns_server: String,
     tunnels: Vec<TunnelItem>,
     reconnect_queue: Vec<u16>,
     capacity: usize,
@@ -68,17 +68,18 @@ impl Forwarder {
         info!("[Forwarder]insert {} domain into domap", domain_array.len());
 
         let local_addr = format!("{}:{}", LOCAL_SERVER, LOCAL_DNS_SERVER_PORT);
-        let dns_server = UdpServer::new(&local_addr);
+        let my_dns_server = UdpServer::new(&local_addr);
         let token = cfg.token.to_string();
         Rc::new(RefCell::new(Forwarder {
             udp_addr: local_addr,
             dns_tun_url: cfg.tunnel_url.to_string(),
             relay_domain: cfg.relay_domain.to_string(),
             relay_port: cfg.relay_port,
+            dns_server: cfg.local_dns_server.to_string(),
             tunnels: vec,
             reconnect_queue: Vec::with_capacity(capacity),
             capacity: capacity,
-            server: dns_server,
+            server: my_dns_server,
             discarded: false,
             keepalive_trigger: None,
             domap,
@@ -145,7 +146,7 @@ impl Forwarder {
             Some(tx) => {
                 for n in 0..self.capacity {
                     let index = n;
-                    dnstunbuilder::connect(self, s.clone(), index, tx.clone());
+                    dnstunbuilder::connect(self, s.clone(), index, tx.clone(), self.dns_server.to_string());
                 }
             }
             None => {}
@@ -250,7 +251,7 @@ impl Forwarder {
                 if let Some(index) = self.reconnect_queue.pop() {
                     info!("[Forwarder]process_reconnect, index:{}", index);
 
-                    dnstunbuilder::connect(self, s.clone(), index as usize, tx.clone());
+                    dnstunbuilder::connect(self, s.clone(), index as usize, tx.clone(), self.dns_server.to_string());
                 } else {
                     break;
                 }

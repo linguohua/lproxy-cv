@@ -12,7 +12,7 @@ use url;
 
 pub type TxType = UnboundedSender<(bytes::Bytes, std::net::SocketAddr)>;
 
-pub fn connect(fw: &Forwarder, mgr2: Rc<RefCell<Forwarder>>, index: usize, udp_tx: TxType) {
+pub fn connect(fw: &Forwarder, mgr2: Rc<RefCell<Forwarder>>, index: usize, udp_tx: TxType, dns_server:String) {
     let relay_domain = fw.relay_domain.to_string();
     let relay_port = fw.relay_port;
     let ws_url = &fw.dns_tun_url;
@@ -27,7 +27,7 @@ pub fn connect(fw: &Forwarder, mgr2: Rc<RefCell<Forwarder>>, index: usize, udp_t
 
     // TODO: need to specify address and port
     let f_fut = async move {
-        let (ws_stream, rawfd) = match ws_connect_async(&relay_domain, relay_port, url).await {
+        let (ws_stream, rawfd) = match ws_connect_async(&relay_domain, relay_port, url, dns_server).await {
             Ok((f, r)) => (f, r),
             Err(e) => {
                 error!("[dnstunbuilder]ws_connect_async failed:{}", e);

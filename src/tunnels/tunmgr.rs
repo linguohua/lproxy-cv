@@ -27,6 +27,7 @@ pub struct TunMgr {
     capacity: usize,
     pub tunnel_req_cap: usize,
     pub request_quota: u16,
+    dns_server: String,
     tunnels: Vec<TunnelItem>,
     sorted_tun_indies: Vec<u16>,
     current_tun_idx: u16,
@@ -51,6 +52,7 @@ impl TunMgr {
             sv.push(n as u16);
         }
 
+        let dns_server = cfg.local_dns_server.to_string();
         let token = cfg.token.to_string();
         Rc::new(RefCell::new(TunMgr {
             url: cfg.tunnel_url.to_string(),
@@ -68,6 +70,7 @@ impl TunMgr {
             token,
             service_tx: service_tx,
             udpx_tx: None,
+            dns_server,
             access_log: HashSet::default(),
         }))
     }
@@ -77,7 +80,7 @@ impl TunMgr {
         for n in 0..self.capacity {
             let index = n;
             let mgr = s.clone();
-            tunbuilder::connect(self, mgr, index);
+            tunbuilder::connect(self, mgr, index, self.dns_server.to_string());
         }
 
         self.start_keepalive_timer(s);
@@ -311,7 +314,7 @@ impl TunMgr {
             if let Some(index) = self.reconnect_queue.pop() {
                 info!("[TunMgr]process_reconnect, index:{}", index);
 
-                tunbuilder::connect(self, s.clone(), index as usize);
+                tunbuilder::connect(self, s.clone(), index as usize, self.dns_server.to_string());
             } else {
                 break;
             }

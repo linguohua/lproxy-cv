@@ -13,7 +13,7 @@ use std::time::Duration;
 use tokio;
 use url;
 
-pub fn connect(tm: &TunMgr, mgr2: Rc<RefCell<TunMgr>>, index: usize) {
+pub fn connect(tm: &TunMgr, mgr2: Rc<RefCell<TunMgr>>, index: usize, dns_server2: String) {
     let relay_domain = tm.relay_domain.to_string();
     let relay_port = tm.relay_port;
     let ws_url = &tm.url;
@@ -36,7 +36,7 @@ pub fn connect(tm: &TunMgr, mgr2: Rc<RefCell<TunMgr>>, index: usize) {
 
     let f_fut = async move {
         // TODO: need to specify address and port
-        let (framed, rawfd) = match ws_connect_async(&relay_domain, relay_port, url).await {
+        let (framed, rawfd) = match ws_connect_async(&relay_domain, relay_port, url, dns_server2).await {
             Ok((f, r)) => (f, r),
             Err(e) => {
                 error!("[tunbuilder]ws_connect_async failed:{}", e);
@@ -114,6 +114,7 @@ pub async fn ws_connect_async(
     relay_domain: &str,
     relay_port: u16,
     url2: url::Url,
+    dns_server: String,
 ) -> std::result::Result<(FrameType, RawFd), std::io::Error> {
     let mut builder = TlsConnector::builder();
     let builder = builder.min_protocol_version(Some(native_tls::Protocol::Tlsv13));
@@ -137,7 +138,7 @@ pub async fn ws_connect_async(
     );
 
     let net_fut = async move {
-        let ipaddr = dns::MyDns::new(relay_domain.to_string()).await?;
+        let ipaddr = dns::MyDns::new(relay_domain.to_string(), dns_server).await?;
         let addr = std::net::SocketAddr::new(ipaddr, relay_port);
         let socket = tokio::net::TcpStream::connect(&addr).await?;
         let rawfd = socket.as_raw_fd();

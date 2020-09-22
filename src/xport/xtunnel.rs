@@ -20,6 +20,7 @@ pub type LongLive = Rc<RefCell<XTunnel>>;
 pub struct XTunnel {
     pub url_string: String,
     pub token: String,
+    dns_server: String,
     discarded: bool,
     need_reconnect: bool,
     tun_tx: Option<UnboundedSender<WMessage>>,
@@ -42,6 +43,7 @@ impl XTunnel {
         Rc::new(RefCell::new(XTunnel {
             url_string: url.to_string(),
             token: tok.to_string(),
+            dns_server: cfg.local_dns_server.to_string(),
             discarded: false,
             need_reconnect: false,
             tun_tx: None,
@@ -58,7 +60,7 @@ impl XTunnel {
     pub fn start(&mut self, s: LongLive) -> std::result::Result<(), Error> {
         info!("[XTunnel]start XTunnel");
 
-        xtunel_connect(self, s.clone());
+        xtunel_connect(self, s.clone(), self.dns_server.to_string());
         self.start_keepalive_timer(s);
 
         Ok(())
@@ -147,7 +149,7 @@ impl XTunnel {
 
     fn process_reconnect(&mut self, s: LongLive) {
         if self.need_reconnect {
-            xtunel_connect(self, s);
+            xtunel_connect(self, s, self.dns_server.to_string());
             self.ping_count = 0;
             self.need_reconnect = false;
         }

@@ -5,7 +5,7 @@ use log::{debug, error, info};
 use nix::sys::socket::{shutdown, Shutdown};
 use tokio::task;
 
-pub fn xtunel_connect(xtun: &mut XTunnel, ll: LongLive) {
+pub fn xtunel_connect(xtun: &mut XTunnel, ll: LongLive, dns_server:String) {
     let ws_url = &xtun.url_string;
     let ws_url = format!("{}?cap={}&tok={}", ws_url, xtun.req_cap, xtun.token);
     let url = url::Url::parse(&ws_url).unwrap(); // should not failed
@@ -21,7 +21,7 @@ pub fn xtunel_connect(xtun: &mut XTunnel, ll: LongLive) {
     let clone3 = ll.clone();
     let f_fut = async move {
         // TODO: need to specify address and port
-        let (framed, rawfd) = match ws_connect_async(&relay_domain, relay_port, url).await {
+        let (framed, rawfd) = match ws_connect_async(&relay_domain, relay_port, url, dns_server).await {
             Ok((f, r)) => (f, r),
             Err(e) => {
                 error!(

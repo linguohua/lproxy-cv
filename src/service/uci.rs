@@ -1,13 +1,7 @@
 use super::ip_rules::do_bash_cmd;
-use crate::config::{DEFAULT_DNS_SERVER, LOCAL_DNS_SERVER_PORT, LOCAL_SERVER};
+use crate::config::{LOCAL_DNS_SERVER_PORT, LOCAL_SERVER};
 
-pub fn set_uci_dnsmasq_to_default(hardcore_dns:String) {
-    let dns_server =  if hardcore_dns.len() > 0 {
-        hardcore_dns
-    } else {
-        DEFAULT_DNS_SERVER.to_string()
-    };
-
+pub fn set_uci_dnsmasq_to_default(dns_server:String) {
     let arg = format!(
         "uci -q delete dhcp.@dnsmasq[0].server;\
          uci -q add_list dhcp.@dnsmasq[0].server=\"{}\";\

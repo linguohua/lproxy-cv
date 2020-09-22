@@ -1,5 +1,4 @@
 use super::{BytePacketBuffer, DnsPacket, DnsQuestion, DnsRecord, QueryType};
-use crate::config::DEFAULT_DNS_SERVER;
 use futures_03::prelude::*;
 use futures_03::task::{Context, Poll};
 use log::{error, info};
@@ -18,6 +17,7 @@ pub enum MyDnsState {
 // The query timeout should consider by use tokio timeout future
 pub struct MyDns {
     domain: String,
+    dns_server: String,
     state: MyDnsState,
     result: Option<IpAddr>,
     udp: Option<UdpSocket>,
@@ -26,9 +26,10 @@ pub struct MyDns {
 }
 
 impl MyDns {
-    pub fn new(domain: String) -> MyDns {
+    pub fn new(domain: String, dns_server: String) -> MyDns {
         MyDns {
             domain,
+            dns_server,
             state: MyDnsState::Init,
             result: None,
             udp: None,
@@ -121,7 +122,9 @@ impl Future for MyDns {
                     }
                 }
                 MyDnsState::Send => {
-                    let target = format!("{}:53", DEFAULT_DNS_SERVER);
+                    let dns_server = self_mut.dns_server.to_string();
+
+                    let target = format!("{}:53", dns_server);
                     let target_addr: std::net::SocketAddr = target
                         .parse()
                         .map_err(|_| Error::new(ErrorKind::Other, "target addr parse error"))?;

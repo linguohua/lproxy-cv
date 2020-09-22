@@ -33,15 +33,15 @@ impl HTTPRequest {
         })
     }
 
-    pub async fn exec(&self, body: Option<Vec<u8>>) -> Result<HTTPResponse, Error> {
+    pub async fn exec(&self, body: Option<Vec<u8>>, dns_server: String) -> Result<HTTPResponse, Error> {
         if self.is_secure() {
-            self.https_exec(body).await
+            self.https_exec(body, dns_server).await
         } else {
-            self.http_exec(body).await
+            self.http_exec(body, dns_server).await
         }
     }
 
-    async fn http_exec(&self, body: Option<Vec<u8>>) -> Result<HTTPResponse, Error> {
+    async fn http_exec(&self, body: Option<Vec<u8>>, dns_server: String) -> Result<HTTPResponse, Error> {
         let urlparsed = &self.url_parsed;
         let host = urlparsed.host_str().unwrap();
         let port = urlparsed.port_or_known_default().unwrap();
@@ -56,7 +56,7 @@ impl HTTPRequest {
         let head_str = self.to_http_header(content_size);
 
         let fut = async move {
-            let ipaddr = dns::MyDns::new(host.to_string()).await?;
+            let ipaddr = dns::MyDns::new(host.to_string(), dns_server).await?;
             let addr = std::net::SocketAddr::new(ipaddr, port);
             let mut socket = tokio::net::TcpStream::connect(&addr).await?;
             let vec;
@@ -76,7 +76,7 @@ impl HTTPRequest {
         fut.await?
     }
 
-    async fn https_exec(&self, body: Option<Vec<u8>>) -> Result<HTTPResponse, Error> {
+    async fn https_exec(&self, body: Option<Vec<u8>>, dns_server: String) -> Result<HTTPResponse, Error> {
         let urlparsed = &self.url_parsed;
         let host = urlparsed.host_str().unwrap();
         let port = urlparsed.port_or_known_default().unwrap();
@@ -94,7 +94,7 @@ impl HTTPRequest {
         let host_str = host.to_string();
 
         let fut = async move {
-            let ipaddr = dns::MyDns::new(host.to_string()).await?;
+            let ipaddr = dns::MyDns::new(host.to_string(), dns_server).await?;
             let addr = std::net::SocketAddr::new(ipaddr, port);
             let socket = tokio::net::TcpStream::connect(&addr).await?;
             let mut socket = cx.connect(&host_str, socket).await?;

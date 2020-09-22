@@ -190,6 +190,16 @@ impl Service {
             uuid = s.borrow().uuid.to_string();
         }
 
+        let dns_server;
+        {
+            let hardcore_dns = s.borrow().hardcore_dns.to_string();
+            dns_server = if hardcore_dns.len() > 0 {
+                hardcore_dns
+            } else {
+                config::DEFAULT_DNS_SERVER.to_string()
+            };
+        }
+
         let httpserver = config::server_url();
         let arch = std::env::consts::ARCH.to_string();
         let req = htp::HTTPRequest::new(&httpserver, Some(Duration::from_secs(10))).unwrap();
@@ -206,7 +216,7 @@ impl Service {
         let arstr = ar.to_json_str();
         info!("auth req:{}", arstr);
         let fut = async move {
-            match req.exec(Some(Vec::from(arstr.as_bytes()))).await {
+            match req.exec(Some(Vec::from(arstr.as_bytes())), dns_server).await {
                 Ok(response) => {
                     let mut retry = true;
                     if let Some(mut rsp) = Service::parse_auth_reply(&response) {
@@ -319,6 +329,11 @@ impl Service {
             info!("[Service]do_cfg_monitor, domain ver:{}", domains_ver);
         }
 
+        let dns_server;
+        {
+            dns_server = s.borrow().tuncfg.as_ref().unwrap().local_dns_server.to_string();
+        }
+
         let arch = std::env::consts::ARCH.to_string();
         let httpserver = monitor_url;
         // info!("[Service]do_cfg_monitor url:{}", httpserver);
@@ -343,7 +358,7 @@ impl Service {
         let req = req.unwrap();
         let sclone = s.clone();
         let fut = async move {
-            match req.exec(Some(Vec::from(arstr.as_bytes()))).await {
+            match req.exec(Some(Vec::from(arstr.as_bytes())), dns_server).await {
                 Ok(response) => {
                     if let Some(mut rsp) = Service::parse_auth_reply(&response) {
                         if rsp.error == 0 {
@@ -433,6 +448,11 @@ impl Service {
             s2.acc_log.clear_log();
         }
 
+        let dns_server;
+        {
+            dns_server = s.borrow().tuncfg.as_ref().unwrap().local_dns_server.to_string();
+        }
+
         let out_bytes: Vec<u8> = pb.write_to_bytes().unwrap();
 
         // send to server
@@ -449,7 +469,7 @@ impl Service {
 
         let req = req.unwrap();
         let fut = async move {
-            match req.exec(Some(out_bytes)).await {
+            match req.exec(Some(out_bytes), dns_server).await {
                 Err(e) => {
                     error!("[Service]do_access_report http request failed, error:{}", e);
                 }
@@ -520,9 +540,14 @@ impl Service {
             return;
         }
 
+        let dns_server;
+        {
+            dns_server = self.tuncfg.as_ref().unwrap().local_dns_server.to_string();
+        }
+
         let req = req.unwrap();
         let fut = async move {
-            match req.exec(None).await {
+            match req.exec(None, dns_server).await {
                 Ok(response) => {
                     if response.status == 200 {
                         if let Some(ref body) = response.body {
