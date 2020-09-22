@@ -320,7 +320,7 @@ dependencies = [
 
 [[package]]
 name = "lproxy-cv"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "base64 0.12.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "byte 0.2.4 (registry+https://github.com/rust-lang/crates.io-index)",
