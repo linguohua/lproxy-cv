@@ -61,11 +61,12 @@ pub struct Service {
     domains: Option<Vec<String>>,
     is_upgrading: bool,
     uuid: String,
+    hardcore_dns: String,
     acc_log: AccLog,
 }
 
 impl Service {
-    pub fn new(uuid: String) -> LongLive {
+    pub fn new(uuid: String, hardcore_dns:String) -> LongLive {
         Rc::new(RefCell::new(Service {
             subservices: Vec::new(),
             ins_tx: None,
@@ -76,6 +77,7 @@ impl Service {
             domains: None,
             is_upgrading: false,
             uuid,
+            hardcore_dns,
             acc_log: AccLog::new(),
         }))
     }
@@ -84,7 +86,7 @@ impl Service {
     pub fn start(&mut self, s: LongLive) {
         if self.state == STATE_STOPPED {
             self.state = STATE_STARTING;
-            super::set_uci_dnsmasq_to_default();
+            super::set_uci_dnsmasq_to_default(self.hardcore_dns.to_string());
 
             let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
             let (trigger, tripwire) = Tripwire::new();
@@ -233,6 +235,8 @@ impl Service {
                                     cfg.tunnel_number, cfg.tunnel_req_cap
                                 );
 
+                                rf.replace_hardcore_dns(&mut cfg);
+
                                 rf.save_cfg(cfg);
                                 rf.fire_instruction(Instruction::StartSubServices);
                                 retry = false;
@@ -268,6 +272,17 @@ impl Service {
         };
 
         tokio::task::spawn_local(fut);
+    }
+
+    fn replace_hardcore_dns(&self, cfg: &mut config::TunCfg) {
+        if self.hardcore_dns.len() > 0 {
+            info!(
+                "[Service]do_auth replace remote cfg dns server {} with hardcore one:{}",
+                cfg.local_dns_server, self.hardcore_dns
+            );
+
+            cfg.local_dns_server = self.hardcore_dns.to_string();
+        }
     }
 
     fn do_cfg_monitor(s: LongLive) {
@@ -342,6 +357,8 @@ impl Service {
                                         rf.notify_forwarder_update_domains(domains);
                                     }
                                 }
+
+                                rf.replace_hardcore_dns(&mut cfg);
 
                                 rf.save_cfg(cfg);
                                 rf.notify_subservice_update_cfg();
@@ -717,7 +734,7 @@ impl Service {
         super::ipset::unset_ipset();
 
         // replace uci dnsmasq forward server to default
-        super::set_uci_dnsmasq_to_default();
+        super::set_uci_dnsmasq_to_default(self.hardcore_dns.to_string());
     }
 
     fn start_monitor_timer(&mut self, s2: LongLive) {

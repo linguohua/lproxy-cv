@@ -44,6 +44,8 @@ fn main() {
     let args: Vec<String> = env::args().collect();
     // println!("{:?}", args);
     let mut uuid: String = String::default();
+    let mut hardcore_dns:String = String::default();
+
     if args.len() > 1 {
         let s = args.get(1).unwrap();
         if s == "-v" {
@@ -56,6 +58,14 @@ fn main() {
             if args.len() > 2 {
                 let uuidstr = args.get(2).unwrap();
                 uuid = uuidstr.to_string();
+            }
+        }
+
+        if args.len() > 4 {
+            let s = args.get(3).unwrap();
+            if s == "-d" {
+                let dnsstr = args.get(4).unwrap();
+                hardcore_dns = dnsstr.to_string();
             }
         }
     }
@@ -114,8 +124,8 @@ fn main() {
     }
 
     info!(
-        "try to start lproxy-cv server, ver:{}, uuid: {}, arch:{}",
-        VERSION, uuid, ARCH
+        "try to start lproxy-cv server, ver:{}, uuid: {}, arch:{}, hardcore_dns:{}",
+        VERSION, uuid, ARCH, hardcore_dns
     );
 
     let mut basic_rt = runtime::Builder::new()
@@ -127,7 +137,7 @@ fn main() {
     let local = tokio::task::LocalSet::new();
 
     let l = async move {
-        let s = Service::new(uuid);
+        let s = Service::new(uuid, hardcore_dns);
         s.borrow_mut().start(s.clone());
 
         let mut ss = signal(SignalKind::user_defined1()).unwrap();

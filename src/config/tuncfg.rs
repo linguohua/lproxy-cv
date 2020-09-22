@@ -24,7 +24,7 @@ pub struct TunCfg {
 }
 
 pub fn server_url() -> String {
-    "https://abc.com/xyz".to_string()
+    "https://abc/xxx".to_string()
 }
 
 pub struct AuthReq {
