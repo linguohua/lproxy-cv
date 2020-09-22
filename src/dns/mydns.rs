@@ -124,7 +124,7 @@ impl Future for MyDns {
                 MyDnsState::Send => {
                     let dns_server = self_mut.dns_server.to_string();
 
-                    let target = format!("{}:53", dns_server);
+                    let target = dns_server;
                     let target_addr: std::net::SocketAddr = target
                         .parse()
                         .map_err(|_| Error::new(ErrorKind::Other, "target addr parse error"))?;

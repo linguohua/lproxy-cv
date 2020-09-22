@@ -11,7 +11,7 @@ pub struct TunCfg {
 
     pub domains_ver: String,
     pub domain_array: Option<Vec<String>>,
-    pub local_dns_server: String,
+    pub default_dns_server: String,
     pub request_quota: usize,
 
     pub xport_url: String,
@@ -24,7 +24,7 @@ pub struct TunCfg {
 }
 
 pub fn server_url() -> String {
-    "https://abc/xxx".to_string()
+    "https://abc/xyz".to_string()
 }
 
 pub struct AuthReq {
@@ -170,7 +170,7 @@ impl AuthResp {
                 None => "0.1.0".to_string(),
             };
 
-            let local_dns_server = match v_tuncfg["local_dns_server"].as_str() {
+            let default_dns_server = match v_tuncfg["local_dns_server"].as_str() {
                 Some(t) => t.to_string(),
                 None => "223.5.5.5:53".to_string(),
             };
@@ -206,7 +206,7 @@ impl AuthResp {
                 relay_port: relay_port,
                 dns_tunnel_number: dns_tunnel_number,
                 domain_array: Some(domain_array),
-                local_dns_server,
+                default_dns_server,
                 request_quota,
                 xport_url,
                 token: token.to_string(),

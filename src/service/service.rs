@@ -61,12 +61,28 @@ pub struct Service {
     domains: Option<Vec<String>>,
     is_upgrading: bool,
     uuid: String,
-    hardcore_dns: String,
+    default_dns_server: String,
+    user_specify_dns_server: bool,
+
     acc_log: AccLog,
 }
 
 impl Service {
     pub fn new(uuid: String, hardcore_dns:String) -> LongLive {
+        let user_specify_dns_server;
+        let default_dns_server =
+        if hardcore_dns.len() > 0 {
+            user_specify_dns_server = true;
+            if !hardcore_dns.contains(":") {
+                hardcore_dns + ":53"
+            } else {
+                hardcore_dns.to_string()
+            }
+        } else {
+            user_specify_dns_server = false;
+            config::DEFAULT_DNS_SERVER.to_string()
+        };
+
         Rc::new(RefCell::new(Service {
             subservices: Vec::new(),
             ins_tx: None,
@@ -77,7 +93,8 @@ impl Service {
             domains: None,
             is_upgrading: false,
             uuid,
-            hardcore_dns,
+            default_dns_server,
+            user_specify_dns_server,
             acc_log: AccLog::new(),
         }))
     }
@@ -86,7 +103,7 @@ impl Service {
     pub fn start(&mut self, s: LongLive) {
         if self.state == STATE_STOPPED {
             self.state = STATE_STARTING;
-            super::set_uci_dnsmasq_to_default(self.hardcore_dns.to_string());
+            super::set_uci_dnsmasq_to_default(self.default_dns_server.to_string());
 
             let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
             let (trigger, tripwire) = Tripwire::new();
@@ -192,7 +209,7 @@ impl Service {
 
         let dns_server;
         {
-            let hardcore_dns = s.borrow().hardcore_dns.to_string();
+            let hardcore_dns = s.borrow().default_dns_server.to_string();
             dns_server = if hardcore_dns.len() > 0 {
                 hardcore_dns
             } else {
@@ -245,7 +262,7 @@ impl Service {
                                     cfg.tunnel_number, cfg.tunnel_req_cap
                                 );
 
-                                rf.replace_hardcore_dns(&mut cfg);
+                                rf.replace_user_default_dns_server(&mut cfg);
 
                                 rf.save_cfg(cfg);
                                 rf.fire_instruction(Instruction::StartSubServices);
@@ -284,14 +301,14 @@ impl Service {
         tokio::task::spawn_local(fut);
     }
 
-    fn replace_hardcore_dns(&self, cfg: &mut config::TunCfg) {
-        if self.hardcore_dns.len() > 0 {
+    fn replace_user_default_dns_server (&self, cfg: &mut config::TunCfg) {
+        if self.user_specify_dns_server {
             info!(
                 "[Service]do_auth replace remote cfg dns server {} with hardcore one:{}",
-                cfg.local_dns_server, self.hardcore_dns
+                cfg.default_dns_server, self.default_dns_server
             );
 
-            cfg.local_dns_server = self.hardcore_dns.to_string();
+            cfg.default_dns_server = self.default_dns_server.to_string();
         }
     }
 
@@ -331,7 +348,7 @@ impl Service {
 
         let dns_server;
         {
-            dns_server = s.borrow().tuncfg.as_ref().unwrap().local_dns_server.to_string();
+            dns_server = s.borrow().tuncfg.as_ref().unwrap().default_dns_server.to_string();
         }
 
         let arch = std::env::consts::ARCH.to_string();
@@ -373,7 +390,7 @@ impl Service {
                                     }
                                 }
 
-                                rf.replace_hardcore_dns(&mut cfg);
+                                rf.replace_user_default_dns_server(&mut cfg);
 
                                 rf.save_cfg(cfg);
                                 rf.notify_subservice_update_cfg();
@@ -450,7 +467,7 @@ impl Service {
 
         let dns_server;
         {
-            dns_server = s.borrow().tuncfg.as_ref().unwrap().local_dns_server.to_string();
+            dns_server = s.borrow().tuncfg.as_ref().unwrap().default_dns_server.to_string();
         }
 
         let out_bytes: Vec<u8> = pb.write_to_bytes().unwrap();
@@ -542,7 +559,7 @@ impl Service {
 
         let dns_server;
         {
-            dns_server = self.tuncfg.as_ref().unwrap().local_dns_server.to_string();
+            dns_server = self.tuncfg.as_ref().unwrap().default_dns_server.to_string();
         }
 
         let req = req.unwrap();
@@ -759,7 +776,7 @@ impl Service {
         super::ipset::unset_ipset();
 
         // replace uci dnsmasq forward server to default
-        super::set_uci_dnsmasq_to_default(self.hardcore_dns.to_string());
+        super::set_uci_dnsmasq_to_default(self.default_dns_server.to_string());
     }
 
     fn start_monitor_timer(&mut self, s2: LongLive) {

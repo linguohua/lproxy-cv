@@ -52,7 +52,7 @@ impl TunMgr {
             sv.push(n as u16);
         }
 
-        let dns_server = cfg.local_dns_server.to_string();
+        let dns_server = cfg.default_dns_server.to_string();
         let token = cfg.token.to_string();
         Rc::new(RefCell::new(TunMgr {
             url: cfg.tunnel_url.to_string(),

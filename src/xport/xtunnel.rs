@@ -43,7 +43,7 @@ impl XTunnel {
         Rc::new(RefCell::new(XTunnel {
             url_string: url.to_string(),
             token: tok.to_string(),
-            dns_server: cfg.local_dns_server.to_string(),
+            dns_server: cfg.default_dns_server.to_string(),
             discarded: false,
             need_reconnect: false,
             tun_tx: None,
