@@ -1,4 +1,5 @@
 use std::fmt;
+use log::{error};
 
 #[derive(Debug)]
 pub struct TunCfg {
@@ -125,11 +126,6 @@ impl AuthResp {
                 None => 2,
             };
 
-            let request_quota = match v_tuncfg["request_quota"].as_u64() {
-                Some(t) => t as usize,
-                None => 10,
-            };
-
             let tunnel_url = match v_tuncfg["tunnel_url"].as_str() {
                 Some(t) => t.to_string(),
                 None => "wss://127.0.0.1/tun".to_string(),
@@ -155,6 +151,11 @@ impl AuthResp {
                 None => 100,
             };
 
+            let request_quota = match v_tuncfg["request_quota"].as_u64() {
+                Some(t) => t as usize,
+                None => 100,
+            };
+
             let relay_domain = match v_tuncfg["relay_domain"].as_str() {
                 Some(t) => t.to_string(),
                 None => "127.0.0.1".to_string(),
@@ -170,10 +171,16 @@ impl AuthResp {
                 None => "0.1.0".to_string(),
             };
 
-            let default_dns_server = match v_tuncfg["local_dns_server"].as_str() {
+            let mut default_dns_server = match v_tuncfg["local_dns_server"].as_str() {
                 Some(t) => t.to_string(),
-                None => "223.5.5.5:53".to_string(),
+                None => super::DEFAULT_DNS_SERVER.to_string(),
             };
+
+            if default_dns_server.contains(":") {
+                error!("server tuncfg local_dns_server contains port, now remove port: {}", default_dns_server);
+                let v: Vec<&str> = default_dns_server.split(':').collect();
+                default_dns_server = v[0].to_string()
+            }
 
             let dns_tunnel_number = match v_tuncfg["dns_tunnel_number"].as_u64() {
                 Some(t) => t as usize,

@@ -70,6 +70,15 @@ impl Forwarder {
         let local_addr = format!("{}:{}", LOCAL_SERVER, LOCAL_DNS_SERVER_PORT);
         let my_dns_server = UdpServer::new(&local_addr);
         let token = cfg.token.to_string();
+
+        let dns_server_address;
+        if cfg.default_dns_server.contains(":") {
+            error!("Forwarder::new cfg.default_dns_server should not contains port number:{}", cfg.default_dns_server);
+            dns_server_address = cfg.default_dns_server.to_string();
+        } else {
+            dns_server_address = cfg.default_dns_server.to_string() + ":53";
+        }
+
         Rc::new(RefCell::new(Forwarder {
             udp_addr: local_addr,
             dns_tun_url: cfg.tunnel_url.to_string(),
@@ -83,7 +92,7 @@ impl Forwarder {
             discarded: false,
             keepalive_trigger: None,
             domap,
-            lresolver: LocalResolver::new(&cfg.default_dns_server),
+            lresolver: LocalResolver::new(dns_server_address), // with default port 53
             nsock,
             token,
             service_tx,

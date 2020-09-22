@@ -17,7 +17,7 @@ pub enum MyDnsState {
 // The query timeout should consider by use tokio timeout future
 pub struct MyDns {
     domain: String,
-    dns_server: String,
+    dns_server_address: String,
     state: MyDnsState,
     result: Option<IpAddr>,
     udp: Option<UdpSocket>,
@@ -27,9 +27,17 @@ pub struct MyDns {
 
 impl MyDns {
     pub fn new(domain: String, dns_server: String) -> MyDns {
+        let dns_server_address;
+        if dns_server.contains(":") {
+            error!("MyDns::new dns_server should not contains port number:{}", dns_server);
+            dns_server_address = dns_server;
+        } else {
+            dns_server_address = dns_server + ":53";
+        }
+
         MyDns {
             domain,
-            dns_server,
+            dns_server_address,
             state: MyDnsState::Init,
             result: None,
             udp: None,
@@ -122,9 +130,7 @@ impl Future for MyDns {
                     }
                 }
                 MyDnsState::Send => {
-                    let dns_server = self_mut.dns_server.to_string();
-
-                    let target = dns_server;
+                    let target = self_mut.dns_server_address.to_string();
                     let target_addr: std::net::SocketAddr = target
                         .parse()
                         .map_err(|_| Error::new(ErrorKind::Other, "target addr parse error"))?;

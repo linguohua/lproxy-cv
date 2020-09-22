@@ -24,7 +24,7 @@ pub struct LocalResolver {
 }
 
 impl LocalResolver {
-    pub fn new(local_dns_server: &str) -> LongLive {
+    pub fn new(local_dns_server: String) -> LongLive {
         let dns_server_addr = local_dns_server.parse().unwrap();
         Rc::new(RefCell::new(LocalResolver {
             tx: (None, None),

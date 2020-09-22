@@ -73,11 +73,11 @@ impl Service {
         let default_dns_server =
         if hardcore_dns.len() > 0 {
             user_specify_dns_server = true;
-            if !hardcore_dns.contains(":") {
-                hardcore_dns + ":53"
-            } else {
-                hardcore_dns.to_string()
+            if hardcore_dns.contains(":") {
+                error!("Service::new hardcore_dns should not contains port number:{}", hardcore_dns);
             }
+            let v: Vec<&str> = hardcore_dns.split(':').collect();
+            v[0].to_string()
         } else {
             user_specify_dns_server = false;
             config::DEFAULT_DNS_SERVER.to_string()
