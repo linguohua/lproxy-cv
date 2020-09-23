@@ -346,26 +346,30 @@ impl Forwarder {
         let dnspacket = DnsPacket::from_buffer(&mut bf);
         match dnspacket {
             Ok(p) => {
-                let q = &p.questions[0];
+                if p.questions.len() > 0 {
+                    let q = &p.questions[0];
 
-                if self.work_as_global || self.domap.has(&q.name) {
-                    info!("[Forwarder]dns domain:{}, use remote resolver", q.name);
-                    // select tunnel
-                    let tun = self.alloc_tunnel_for_req();
-                    match tun {
-                        Some(tun) => {
-                            tun.borrow().on_dns_udp_msg(message, src_addr);
+                    if self.work_as_global || self.domap.has(&q.name) {
+                        info!("[Forwarder]dns domain:{}, use remote resolver", q.name);
+                        // select tunnel
+                        let tun = self.alloc_tunnel_for_req();
+                        match tun {
+                            Some(tun) => {
+                                tun.borrow().on_dns_udp_msg(message, src_addr);
+                            }
+                            None => {
+                                error!("[Forwarder]on_dns_udp_msg, no tunnel");
+                            }
                         }
-                        None => {
-                            error!("[Forwarder]on_dns_udp_msg, no tunnel");
-                        }
+                    } else {
+                        info!("[Forwarder]dns domain:{}, use local resolver", q.name);
+                        let bm = bytes::Bytes::from(message);
+                        self.lresolver
+                            .borrow_mut()
+                            .request(self, &q.name, p.header.id, bm, src_addr);
                     }
                 } else {
-                    info!("[Forwarder]dns domain:{}, use local resolver", q.name);
-                    let bm = bytes::Bytes::from(message);
-                    self.lresolver
-                        .borrow_mut()
-                        .request(self, &q.name, p.header.id, bm, src_addr);
+                    error!("[Forwarder]parse dns packet failed, no question domain name found");
                 }
             }
 
