@@ -75,9 +75,11 @@ impl Service {
             user_specify_dns_server = true;
             if hardcore_dns.contains(":") {
                 error!("Service::new hardcore_dns should not contains port number:{}", hardcore_dns);
+                let v: Vec<&str> = hardcore_dns.split(':').collect();
+                v[0].to_string()
+            } else {
+                hardcore_dns
             }
-            let v: Vec<&str> = hardcore_dns.split(':').collect();
-            v[0].to_string()
         } else {
             user_specify_dns_server = false;
             config::DEFAULT_DNS_SERVER.to_string()
